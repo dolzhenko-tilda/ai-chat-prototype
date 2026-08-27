@@ -1,0 +1,104 @@
+<script setup lang="ts">
+import { ref } from "vue";
+import type { ChatStatus } from "../types/chat";
+
+const props = defineProps<{
+  status: ChatStatus;
+  requireApproval: boolean;
+}>();
+
+const emit = defineEmits<{
+  send: [text: string];
+  stop: [];
+  "update:requireApproval": [value: boolean];
+}>();
+
+const text = ref("");
+
+function submit() {
+  const value = text.value.trim();
+  if (!value || props.status === "streaming" || props.status === "submitted") return;
+  emit("send", value);
+  text.value = "";
+}
+
+function onKeydown(event: KeyboardEvent) {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    submit();
+  }
+}
+</script>
+
+<template>
+  <form class="chat-input" @submit.prevent="submit">
+    <textarea
+      v-model="text"
+      class="chat-input__textarea"
+      placeholder="Type a message… (Shift+Enter for newline)"
+      rows="2"
+      @keydown="onKeydown"
+    />
+    <div class="chat-input__row">
+      <label class="chat-input__approval">
+        <input
+          type="checkbox"
+          :checked="requireApproval"
+          @change="emit('update:requireApproval', ($event.target as HTMLInputElement).checked)"
+        />
+        Require approval for sensitive tools
+      </label>
+
+      <div class="chat-input__actions">
+        <button
+          v-if="status === 'streaming' || status === 'submitted'"
+          type="button"
+          class="btn btn--danger"
+          @click="emit('stop')"
+        >
+          Stop
+        </button>
+        <button type="submit" class="btn btn--primary" :disabled="status === 'streaming' || status === 'submitted'">
+          Send
+        </button>
+      </div>
+    </div>
+  </form>
+</template>
+
+<style scoped>
+.chat-input {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem 1rem;
+  border-top: 1px solid var(--border);
+}
+.chat-input__textarea {
+  resize: vertical;
+  font: inherit;
+  padding: 0.6rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: inherit;
+}
+.chat-input__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.chat-input__approval {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+.chat-input__actions {
+  display: flex;
+  gap: 0.5rem;
+}
+</style>
