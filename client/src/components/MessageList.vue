@@ -25,7 +25,7 @@ const containerRef = ref<HTMLDivElement | null>(null);
 // Keep the view pinned to the newest message (as in any chat app), but stop
 // fighting the user if they scroll up to read earlier history.
 const stickToBottom = ref(true);
-const SCROLL_BOTTOM_THRESHOLD_PX = 48;
+const SCROLL_BOTTOM_THRESHOLD_PX = 5;
 
 function scrollToBottom() {
   const el = containerRef.value;

@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, watch } from "vue";
 
-defineProps<{
+const props = defineProps<{
   text: string;
   state?: "streaming" | "done";
 }>();
@@ -9,6 +9,16 @@ defineProps<{
 // Collapsed by default once done, expanded automatically while streaming so
 // the user can watch the model "think".
 const expanded = ref(true);
+
+watch(
+  () => props.state,
+  async (newState, oldState) => {
+    if (newState !== oldState && newState === "done") {
+      expanded.value = false;
+    }
+  },
+  { immediate: true, flush: "post" }
+);
 </script>
 
 <template>
