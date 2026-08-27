@@ -25,9 +25,13 @@ async function onSend(text: string) {
   await chat.sendMessage({ text });
 }
 
-async function onStop() {
+async function stopActiveGeneration() {
   // Section 7.4: abort on the client AND tell the server to stop the LLM call.
   await Promise.all([chat.stop(), api.cancelGeneration(chatId.value).catch(() => {})]);
+}
+
+async function onStop() {
+  await stopActiveGeneration();
 }
 
 async function onDelete(messageId: string) {
@@ -59,7 +63,16 @@ async function onDeny(approvalId: string) {
   await chat.addToolApprovalResponse({ id: approvalId, approved: false });
 }
 
-function onNewChat() {
+async function onNewChat() {
+  // `@ai-sdk/vue`'s useChat recreates its internal chat instance when `id`
+  // changes, but the `messages`/`status` refs it exposes are shared across
+  // instances. If a generation for the *current* chat were still running,
+  // its chunks would keep writing into those shared refs even after we've
+  // switched to the new (supposedly empty) chat, leaking old content into
+  // the new interface. Stop it first so "New chat" really starts clean.
+  if (chat.status.value === "streaming" || chat.status.value === "submitted") {
+    await stopActiveGeneration();
+  }
   newChat();
 }
 </script>
