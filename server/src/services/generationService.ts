@@ -114,6 +114,19 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
 
   let finalMessage: AppUIMessage | undefined;
   let finalStatus: MessageStatus = "complete";
+  let lastErrorText: string | undefined;
+
+  /** Appends a `data-error` part (if we saw one) to whatever ai-sdk's own
+   * state builder produced. Necessary because the built-in `error` chunk
+   * type is intentionally *not* turned into a message part upstream (it
+   * only feeds an `onError` callback) - without this, a failed generation
+   * would persist with empty/partial `parts` and no visible trace of the
+   * error once the page is reloaded. */
+  function finalizeParts(parts: AppUIMessage["parts"]): AppUIMessage["parts"] {
+    if (!lastErrorText) return parts;
+    if (parts.some((p) => p.type === "data-error")) return parts;
+    return [...parts, { type: "data-error", data: { message: lastErrorText } }];
+  }
 
   void (async () => {
     try {
@@ -141,12 +154,14 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
       });
 
       for await (const chunk of uiStream) {
-        gen.chunks.push(chunk);
-        emitter.emit("chunk", chunk);
-        // Surface stream-level errors as a `data-error` part too, so they're
-        // rendered inline in the assistant message (and persisted in
-        // history), not just as a transient client-side error banner.
+        // A live client's `useChat` throws synchronously the moment it sees
+        // a built-in `error` chunk (its `onError` re-throws to abort the
+        // stream), so anything queued *after* it is never processed. Emit
+        // our custom `data-error` data part *before* the fatal `error`
+        // chunk so a connected client still gets to render it inline on
+        // the message before the stream aborts.
         if (chunk.type === "error") {
+          lastErrorText = chunk.errorText;
           const dataErrorChunk: AppUIMessageChunk = {
             type: "data-error",
             id: randomUUID(),
@@ -155,30 +170,32 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
           gen.chunks.push(dataErrorChunk);
           emitter.emit("chunk", dataErrorChunk);
         }
+        gen.chunks.push(chunk);
+        emitter.emit("chunk", chunk);
         generationStateRepository.appendChunk(chatId, gen.chunks);
       }
 
       persistAssistantMessage(
         chatId,
         assistantMessageId,
-        finalMessage?.parts ?? [],
+        finalizeParts(finalMessage?.parts ?? []),
         finalMessage ? finalStatus : "error"
       );
     } catch (error) {
       console.error(`[generation:${chatId}] failed`, error);
       const message = error instanceof Error ? error.message : String(error);
-      const errorChunk: AppUIMessageChunk = { type: "error", errorText: message };
+      lastErrorText = message;
       const dataErrorChunk: AppUIMessageChunk = {
         type: "data-error",
         id: randomUUID(),
         data: { message },
       };
-      gen.chunks.push(errorChunk, dataErrorChunk);
+      const errorChunk: AppUIMessageChunk = { type: "error", errorText: message };
+      gen.chunks.push(dataErrorChunk, errorChunk);
       generationStateRepository.appendChunk(chatId, gen.chunks);
-      emitter.emit("chunk", errorChunk);
       emitter.emit("chunk", dataErrorChunk);
-      const parts: AppUIMessage["parts"] = finalMessage?.parts ?? [{ type: "data-error", data: { message } }];
-      persistAssistantMessage(chatId, assistantMessageId, parts, "error");
+      emitter.emit("chunk", errorChunk);
+      persistAssistantMessage(chatId, assistantMessageId, finalizeParts(finalMessage?.parts ?? []), "error");
     } finally {
       finishGeneration(gen);
     }
