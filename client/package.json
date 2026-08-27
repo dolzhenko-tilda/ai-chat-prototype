@@ -6,13 +6,13 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
     "@ai-sdk/provider-utils": "^5.0.32",
     "@ai-sdk/vue": "^4.0.83",
     "ai": "^7.0.83",
-    "uuid": "^14.0.2",
     "vue": "^3.5.41",
     "zod": "^3.25.76"
   },

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, ref } from "vue";
 import { useChatId } from "../composables/useChatId";
 import { useAppChat } from "../composables/useAppChat";
 import { api } from "../services/api";
@@ -9,6 +9,17 @@ import ChatInput from "./ChatInput.vue";
 const { chatId, newChat } = useChatId();
 const requireApproval = ref(false);
 const { chat, isLoadingHistory, historyError, reload } = useAppChat(chatId, requireApproval);
+
+// `chat.messages` is a shallowRef that ai-sdk mutates in place (push/replace by
+// index) followed by `triggerRef` - the array reference itself never changes.
+// If we passed `chat.messages.value` straight through as a prop, Vue's prop
+// diffing (which compares by reference) would see the "same" array on every
+// single chunk/new message and skip notifying MessageList, so its watcher
+// (used for auto-scroll) would only fire when unrelated props (e.g. `status`)
+// happened to change too. Spreading into a new array here guarantees the
+// prop reference changes on every mutation, which this computed picks up
+// because `triggerRef` still invalidates it (it depends on `chat.messages.value`).
+const messages = computed(() => [...chat.messages.value]);
 
 async function onSend(text: string) {
   await chat.sendMessage({ text });
@@ -56,7 +67,7 @@ function onNewChat() {
     </p>
 
     <MessageList
-      :messages="chat.messages.value"
+      :messages="messages"
       :status="chat.status.value"
       @delete="onDelete"
       @regenerate="onRegenerate"

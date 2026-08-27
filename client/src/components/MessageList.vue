@@ -51,7 +51,11 @@ watch(
     await nextTick();
     scrollToBottom();
   },
-  { deep: true, immediate: true, flush: "post" }
+  // No `deep` needed: the parent (ChatWindow) always hands us a freshly
+  // spread array whenever anything in `chat.messages` changes, so a plain
+  // reference watch is enough (and much cheaper than deep-diffing every
+  // message's parts on every streamed chunk).
+  { immediate: true, flush: "post" }
 );
 </script>
 

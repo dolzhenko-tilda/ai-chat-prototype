@@ -1,0 +1,20 @@
+{
+  "name": "ai-chat-prototype",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Prototype web chat with a local OpenAI-compatible LLM: Vue 3 + ai-sdk client, Node.js + Express + SQLite server with SSE streaming.",
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev": "concurrently -n server,client -c blue,green \"npm run dev -w server\" \"npm run dev -w client\"",
+    "dev:server": "npm run dev -w server",
+    "dev:client": "npm run dev -w client",
+    "build": "npm run build -w server && npm run build -w client",
+    "typecheck": "npm run typecheck -w server && npm run typecheck -w client"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.5"
+  }
+}
