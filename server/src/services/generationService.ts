@@ -13,6 +13,11 @@ export interface ActiveGeneration {
   emitter: EventEmitter;
   chunks: AppUIMessageChunk[];
   finished: boolean;
+  /** Set when the target message was deleted mid-generation (see
+   * `discardGeneration`) - the final persist step must then skip writing
+   * (otherwise it would silently resurrect the "deleted" message once the
+   * in-flight LLM call finishes). */
+  discarded: boolean;
 }
 
 /** In-memory registry of currently streaming generations, keyed by chatId. */
@@ -24,6 +29,20 @@ export function isGenerationActive(chatId: string): boolean {
 
 export function getActiveGeneration(chatId: string): ActiveGeneration | undefined {
   return activeGenerations.get(chatId);
+}
+
+/**
+ * Aborts the active generation for `chatId` if it targets `messageId`, and
+ * marks it so its (still in-flight) completion handler won't re-persist the
+ * message. Used by `DELETE /messages/:id` so deleting a message that's
+ * actively streaming actually sticks, instead of the message reappearing
+ * once the LLM call finishes.
+ */
+export function discardGenerationIfTargeting(chatId: string, messageId: string): void {
+  const gen = activeGenerations.get(chatId);
+  if (!gen || gen.messageId !== messageId) return;
+  gen.discarded = true;
+  gen.abortController.abort();
 }
 
 /**
@@ -105,6 +124,7 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
     emitter,
     chunks: [],
     finished: false,
+    discarded: false,
   };
   activeGenerations.set(chatId, gen);
   generationStateRepository.start(chatId, assistantMessageId);
@@ -175,12 +195,16 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
         generationStateRepository.appendChunk(chatId, gen.chunks);
       }
 
-      persistAssistantMessage(
-        chatId,
-        assistantMessageId,
-        finalizeParts(finalMessage?.parts ?? []),
-        finalMessage ? finalStatus : "error"
-      );
+      // If the message was deleted while this generation was still running
+      // (see `discardGenerationIfTargeting`), don't resurrect it.
+      if (!gen.discarded) {
+        persistAssistantMessage(
+          chatId,
+          assistantMessageId,
+          finalizeParts(finalMessage?.parts ?? []),
+          finalMessage ? finalStatus : "error"
+        );
+      }
     } catch (error) {
       console.error(`[generation:${chatId}] failed`, error);
       const message = error instanceof Error ? error.message : String(error);
@@ -195,7 +219,9 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
       generationStateRepository.appendChunk(chatId, gen.chunks);
       emitter.emit("chunk", dataErrorChunk);
       emitter.emit("chunk", errorChunk);
-      persistAssistantMessage(chatId, assistantMessageId, finalizeParts(finalMessage?.parts ?? []), "error");
+      if (!gen.discarded) {
+        persistAssistantMessage(chatId, assistantMessageId, finalizeParts(finalMessage?.parts ?? []), "error");
+      }
     } finally {
       finishGeneration(gen);
     }

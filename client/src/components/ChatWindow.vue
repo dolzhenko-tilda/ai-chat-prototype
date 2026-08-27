@@ -31,6 +31,18 @@ async function onStop() {
 }
 
 async function onDelete(messageId: string) {
+  const isCurrentlyStreaming =
+    (chat.status.value === "streaming" || chat.status.value === "submitted") &&
+    messages.value[messages.value.length - 1]?.id === messageId;
+  if (isCurrentlyStreaming) {
+    // Stop consuming the client's own in-flight fetch *first*. Otherwise,
+    // once we filter the message out below, any further chunk that still
+    // arrives for it (even a graceful "abort" chunk) would call
+    // `pushMessage` again (since it's no longer the "last message" to
+    // replace), silently resurrecting the message we just asked the
+    // server to delete.
+    await chat.stop();
+  }
   await api.deleteMessage(chatId.value, messageId);
   chat.messages.value = chat.messages.value.filter((m) => m.id !== messageId);
 }

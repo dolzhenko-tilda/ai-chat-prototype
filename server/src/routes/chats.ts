@@ -5,6 +5,7 @@ import { chatsRepository } from "../repositories/chatsRepository.js";
 import { messagesRepository } from "../repositories/messagesRepository.js";
 import {
   cancelGeneration,
+  discardGenerationIfTargeting,
   getActiveGeneration,
   isGenerationActive,
   newMessageId,
@@ -199,12 +200,16 @@ chatsRouter.post("/:chatId/messages/:messageId/continue", (req, res) => {
 
 /** DELETE /api/chats/:chatId/messages/:messageId - remove a message from history. */
 chatsRouter.delete("/:chatId/messages/:messageId", (req, res) => {
-  const { messageId } = req.params;
+  const { chatId, messageId } = req.params;
   const existing = messagesRepository.getById(messageId);
   if (!existing) {
     res.status(404).json({ error: `Message ${messageId} not found` });
     return;
   }
+  // If this message is still being generated, stop that generation and make
+  // sure it won't re-persist the message once the in-flight LLM call ends
+  // (otherwise the "deleted" message would silently reappear).
+  discardGenerationIfTargeting(chatId, messageId);
   messagesRepository.delete(messageId);
   res.status(204).end();
 });
