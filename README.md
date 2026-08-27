@@ -39,7 +39,21 @@ ai-chat-prototype/
 npm install
 ```
 
-### 3. Настройка `.env`
+### 3. Установка LLM
+
+Установите локальный LMM-сервер, например, Ollama, и запустите его
+
+```bash
+brew install ollama
+```
+
+Установите LLM, например, думающую модель `qwen3:4b`
+
+```bash
+ollama pull qwen3:4b
+```
+
+### 4. Настройка `.env`
 
 Скопируйте примеры и подставьте свои значения:
 
@@ -66,7 +80,7 @@ CORS_ORIGIN=http://localhost:5173
 VITE_SERVER_URL=http://localhost:3001
 ```
 
-### 4. Запуск
+### 5. Запуск
 
 Из корня — поднимает и клиент, и сервер одновременно (через `concurrently`):
 
