@@ -19,7 +19,11 @@ export interface ServerChatTransportOptions {
  * (never the whole history) as required by the spec.
  */
 export class ServerChatTransport implements ChatTransport<AppUIMessage> {
-  constructor(private options: ServerChatTransportOptions) {}
+  private options: ServerChatTransportOptions;
+
+  constructor(options: ServerChatTransportOptions) {
+    this.options = options;
+  }
 
   private parseStream(body: ReadableStream<Uint8Array>): ReadableStream<UIMessageChunk> {
     return parseJsonEventStream({ stream: body, schema: uiMessageChunkSchema }).pipeThrough(
