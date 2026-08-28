@@ -10,7 +10,6 @@
     "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
-    "@ai-sdk/provider-utils": "^5.0.32",
     "@ai-sdk/vue": "^4.0.83",
     "ai": "^7.0.83",
     "vue": "^3.5.41",
