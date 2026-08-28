@@ -20,8 +20,14 @@ export type AppUITools = {
   };
 };
 
+export type CustomJsonPartMessage = {
+  title: string;
+  count: number;
+};
+
 export type AppUIDataTypes = {
   error: { message: string };
+  ["custom-json"]: { message: CustomJsonPartMessage };
 };
 
 export type MessageStatus = "complete" | "streaming" | "aborted" | "error";

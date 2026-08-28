@@ -6,6 +6,7 @@ import TextPart from "./TextPart.vue";
 import ReasoningPart from "./ReasoningPart.vue";
 import ToolPart from "./ToolPart.vue";
 import ErrorPart from "./ErrorPart.vue";
+import CustomJsonPart from "./CustomJsonPart.vue";
 
 const props = defineProps<{
   message: AppUIMessage;
@@ -79,6 +80,7 @@ function toolNameFor(part: AppUIMessage["parts"][number]): string {
           @deny="(id) => emit('deny', id)"
         />
         <ErrorPart v-else-if="part.type === 'data-error'" :message="part.data.message" />
+        <CustomJsonPart v-else-if="part.type === 'data-custom-json'" :title="part.data.message.title" :count="part.data.message.count" />
       </template>
       <span v-if="isStreamingThisMessage && message.parts.length === 0" class="message__typing">Thinking…</span>
     </div>

@@ -1,10 +1,19 @@
 import { EventEmitter } from "node:events";
 import { randomUUID } from "node:crypto";
-import { convertToModelMessages, streamText, stepCountIs, toUIMessageStream } from "ai";
+import {
+  convertToModelMessages,
+  streamText,
+  stepCountIs,
+  toUIMessageStream,
+} from "ai";
 import { model, tools, APPROVAL_GATED_TOOLS } from "./llm.js";
 import { messagesRepository } from "../repositories/messagesRepository.js";
 import { generationStateRepository } from "../repositories/generationStateRepository.js";
-import type { AppUIMessage, AppUIMessageChunk, MessageStatus } from "../types.js";
+import type {
+  AppUIMessage,
+  AppUIMessageChunk,
+  MessageStatus,
+} from "../types.js";
 
 export interface ActiveGeneration {
   chatId: string;
@@ -27,7 +36,9 @@ export function isGenerationActive(chatId: string): boolean {
   return activeGenerations.has(chatId);
 }
 
-export function getActiveGeneration(chatId: string): ActiveGeneration | undefined {
+export function getActiveGeneration(
+  chatId: string,
+): ActiveGeneration | undefined {
   return activeGenerations.get(chatId);
 }
 
@@ -38,7 +49,10 @@ export function getActiveGeneration(chatId: string): ActiveGeneration | undefine
  * actively streaming actually sticks, instead of the message reappearing
  * once the LLM call finishes.
  */
-export function discardGenerationIfTargeting(chatId: string, messageId: string): void {
+export function discardGenerationIfTargeting(
+  chatId: string,
+  messageId: string,
+): void {
   const gen = activeGenerations.get(chatId);
   if (!gen || gen.messageId !== messageId) return;
   gen.discarded = true;
@@ -64,7 +78,7 @@ function persistAssistantMessage(
   chatId: string,
   messageId: string,
   parts: AppUIMessage["parts"],
-  status: MessageStatus
+  status: MessageStatus,
 ) {
   const existing = messagesRepository.getById(messageId);
   if (existing) {
@@ -150,7 +164,9 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
 
   void (async () => {
     try {
-      const modelMessages = await convertToModelMessages(conversation, { tools });
+      const modelMessages = await convertToModelMessages(conversation, {
+        tools,
+      });
 
       const result = streamText({
         model,
@@ -166,10 +182,16 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
         tools,
         originalMessages: conversation,
         generateMessageId: () => assistantMessageId,
-        onError: (error) => (error instanceof Error ? error.message : "An error occurred."),
+        onError: (error) =>
+          error instanceof Error ? error.message : "An error occurred.",
         onEnd: ({ responseMessage, outcome }) => {
           finalMessage = responseMessage;
-          finalStatus = outcome.status === "aborted" ? "aborted" : outcome.status === "failed" ? "error" : "complete";
+          finalStatus =
+            outcome.status === "aborted"
+              ? "aborted"
+              : outcome.status === "failed"
+                ? "error"
+                : "complete";
         },
       });
 
@@ -190,6 +212,20 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
           gen.chunks.push(dataErrorChunk);
           emitter.emit("chunk", dataErrorChunk);
         }
+        if (chunk.type === "finish-step") {
+          const customJsonChunk: AppUIMessageChunk = {
+            type: "data-custom-json",
+            id: randomUUID(),
+            data: {
+              message: {
+                title: "Chunks",
+                count: gen.chunks.length,
+              },
+            },
+          };
+          gen.chunks.push(customJsonChunk);
+          emitter.emit("chunk", customJsonChunk);
+        }
         gen.chunks.push(chunk);
         emitter.emit("chunk", chunk);
         generationStateRepository.appendChunk(chatId, gen.chunks);
@@ -202,7 +238,7 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
           chatId,
           assistantMessageId,
           finalizeParts(finalMessage?.parts ?? []),
-          finalMessage ? finalStatus : "error"
+          finalMessage ? finalStatus : "error",
         );
       }
     } catch (error) {
@@ -214,13 +250,21 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
         id: randomUUID(),
         data: { message },
       };
-      const errorChunk: AppUIMessageChunk = { type: "error", errorText: message };
+      const errorChunk: AppUIMessageChunk = {
+        type: "error",
+        errorText: message,
+      };
       gen.chunks.push(dataErrorChunk, errorChunk);
       generationStateRepository.appendChunk(chatId, gen.chunks);
       emitter.emit("chunk", dataErrorChunk);
       emitter.emit("chunk", errorChunk);
       if (!gen.discarded) {
-        persistAssistantMessage(chatId, assistantMessageId, finalizeParts(finalMessage?.parts ?? []), "error");
+        persistAssistantMessage(
+          chatId,
+          assistantMessageId,
+          finalizeParts(finalMessage?.parts ?? []),
+          "error",
+        );
       }
     } finally {
       finishGeneration(gen);
@@ -241,7 +285,7 @@ export function cancelGeneration(chatId: string): boolean {
 export function subscribeToGeneration(
   gen: ActiveGeneration,
   onChunk: (chunk: AppUIMessageChunk) => void,
-  onEnd: () => void
+  onEnd: () => void,
 ): () => void {
   gen.emitter.on("chunk", onChunk);
   gen.emitter.on("end", onEnd);
