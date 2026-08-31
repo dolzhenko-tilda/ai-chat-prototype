@@ -27,7 +27,7 @@ export type CustomJsonPartMessage = {
 
 export type AppUIDataTypes = {
   error: { message: string };
-  ["custom-json"]: { message: CustomJsonPartMessage };
+  ["custom-json"]: CustomJsonPartMessage;
 };
 
 export type MessageStatus = "complete" | "streaming" | "aborted" | "error";

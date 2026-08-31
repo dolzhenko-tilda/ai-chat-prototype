@@ -80,7 +80,7 @@ function toolNameFor(part: AppUIMessage["parts"][number]): string {
           @deny="(id) => emit('deny', id)"
         />
         <ErrorPart v-else-if="part.type === 'data-error'" :message="part.data.message" />
-        <CustomJsonPart v-else-if="part.type === 'data-custom-json'" :title="part.data.message.title" :count="part.data.message.count" />
+        <CustomJsonPart v-else-if="part.type === 'data-custom-json'" :title="part.data.title" :count="part.data.count" />
       </template>
       <span v-if="isStreamingThisMessage && message.parts.length === 0" class="message__typing">Thinking…</span>
     </div>

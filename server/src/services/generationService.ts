@@ -217,10 +217,8 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
             type: "data-custom-json",
             id: randomUUID(),
             data: {
-              message: {
-                title: "Chunks",
-                count: gen.chunks.length,
-              },
+              title: "Chunks",
+              count: gen.chunks.length,
             },
           };
           gen.chunks.push(customJsonChunk);
