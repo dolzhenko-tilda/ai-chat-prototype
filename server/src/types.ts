@@ -9,7 +9,7 @@ export type CustomJsonPartMessage = {
 /** Custom data parts our server emits into message.parts (section 8: error handling). */
 export type AppUIDataTypes = {
   error: { message: string };
-  ["custom-json"]: { message: CustomJsonPartMessage };
+  ["custom-json"]: CustomJsonPartMessage;
 };
 
 export type AppTools = InferUITools<typeof tools>;
