@@ -34,6 +34,11 @@ export type SourcePartMessage = {
   textPartIndex: number;
   /** Index (within that text part) of the paragraph this source is attached to. */
   paragraphIndex: number;
+  /** If the paragraph is a markdown list, the index of the specific list
+   * item (within that paragraph) this source is attached to - letting each
+   * item have its own source instead of just one per whole list. Omitted
+   * for sources attached to a non-list paragraph as a whole. */
+  itemIndex?: number;
 };
 
 export type AppUIDataTypes = {

@@ -3,12 +3,15 @@ import { computed } from "vue";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 
-type SourceData = { title: string; url: string; paragraphIndex: number };
+type SourceData = { title: string; url: string; paragraphIndex: number; itemIndex?: number };
 
 const props = defineProps<{
   text: string;
   state?: "streaming" | "done";
-  /** Mock sources for this text part, matched to a paragraph via `paragraphIndex` (not all paragraphs have one). */
+  /** Mock sources for this text part, matched to a paragraph via
+   * `paragraphIndex` (not all paragraphs have one) - or, when the paragraph
+   * is a markdown list, to one specific `<li>` via `itemIndex`, so each list
+   * item can carry its own source instead of just one per whole list. */
   sources?: SourceData[];
 }>();
 
@@ -68,41 +71,77 @@ function buildSourceIcon(document: Document): SVGSVGElement {
   return svg;
 }
 
+/** Builds the source `<a>` link element (label + external-link icon) for a
+ * single mock source. */
+function buildSourceLink(document: Document, sourceData: SourceData): HTMLAnchorElement {
+  const link = document.createElement("a");
+  link.className = "text-part__source";
+  link.href = sourceData.url;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.title = sourceData.title;
+
+  const label = document.createElement("span");
+  label.textContent = sourceData.title;
+  link.append(label, buildSourceIcon(document));
+  return link;
+}
+
+/** Inserts `link` at the innermost sensible spot within/after `element` (see
+ * `findSourceInsertionPoint`). */
+function insertSourceLink(document: Document, element: Element, sourceData: SourceData): void {
+  const link = buildSourceLink(document, sourceData);
+  const { mode, target } = findSourceInsertionPoint(element);
+  if (mode === "after") {
+    target.after(' ', link);
+  } else {
+    target.append(' ', link);
+  }
+}
+
 /** Renders a single paragraph's markdown to sanitized HTML. Each paragraph is
  * parsed independently (rather than the whole message at once) so it can
  * still be paired one-to-one with its mock source/cursor, same as before
- * markdown support was added. */
+ * markdown support was added.
+ *
+ * A paragraph can contain a markdown list, optionally preceded by an intro
+ * line with no blank line before the list (e.g. "Some intro:\n- item one").
+ * In that case the intro text and each list item are separate units and can
+ * each carry their own source: the intro's source (if any) attaches right
+ * before the list, and each item's source attaches to its own `<li>`. */
 function renderMarkdown(source: string, paragraphIndex: number): string {
   const sanitizedMarkdown = DOMPurify.sanitize(marked.parse(source, { async: false, breaks: true }));
   const document = new DOMParser().parseFromString(sanitizedMarkdown, "text/html");
+
+  const list = document.body.querySelector(":scope > ul, :scope > ol");
+  const itemSources = sourcesForParagraphItems(paragraphIndex);
+  for (const sourceData of itemSources) {
+    const item = list?.children[sourceData.itemIndex!];
+    if (item) insertSourceLink(document, item, sourceData);
+  }
+
   const sourceData = sourceForParagraph(paragraphIndex);
-  const lastTopLevelElement = document.body.lastElementChild;
-
-  if (sourceData && lastTopLevelElement) {
-    const link = document.createElement("a");
-    link.className = "text-part__source";
-    link.href = sourceData.url;
-    link.target = "_blank";
-    link.rel = "noopener noreferrer";
-    link.title = sourceData.title;
-
-    const label = document.createElement("span");
-    label.textContent = sourceData.title;
-    link.append(label, buildSourceIcon(document));
-
-    const { mode, target } = findSourceInsertionPoint(lastTopLevelElement);
-    if (mode === "after") {
-      target.after(' ', link);
-    } else {
-      target.append(' ', link);
-    }
+  if (sourceData) {
+    // With a list present, the paragraph-level source belongs to the intro
+    // text right above it (the element right before the list), not the list
+    // itself - falling back to the paragraph's last element if there's no
+    // list (the previous, simpler behavior).
+    const introElement = list?.previousElementSibling ?? document.body.lastElementChild;
+    if (introElement) insertSourceLink(document, introElement, sourceData);
   }
 
   return document.body.innerHTML;
 }
 
+/** The source attached to `index`'s paragraph as a whole (i.e. not one of its
+ * list items - see `sourcesForParagraphItems`). */
 function sourceForParagraph(index: number): SourceData | undefined {
-  return props.sources?.find((source) => source.paragraphIndex === index);
+  return props.sources?.find((source) => source.paragraphIndex === index && source.itemIndex === undefined);
+}
+
+/** Sources attached to individual list items of `index`'s paragraph. */
+function sourcesForParagraphItems(index: number): SourceData[] {
+  return props.sources?.filter((source) => source.paragraphIndex === index && source.itemIndex !== undefined) ?? [];
 }
 </script>
 

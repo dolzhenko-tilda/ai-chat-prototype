@@ -55,10 +55,11 @@ function toolNameFor(part: AppUIMessage["parts"][number]): string {
 }
 
 /** Mock sources are appended by the server as `data-source` parts (see
- * `emitSourcesForCompletedParagraphs` in generationService.ts), one per
- * paragraph of assistant text that wasn't randomly skipped. Emitted live as
- * paragraphs complete during streaming, and persisted with the message
- * afterwards, so they're available both mid-stream and on history reload. */
+ * `emitSourcesForCompletedUnits` in generationService.ts), one per paragraph
+ * - or, for a markdown list, one per list item - of assistant text that
+ * wasn't randomly skipped. Emitted live as paragraphs/items complete during
+ * streaming, and persisted with the message afterwards, so they're
+ * available both mid-stream and on history reload. */
 const sourceParts = computed(() =>
   props.message.parts.filter(
     (part): part is Extract<AppUIMessage["parts"][number], { type: "data-source" }> => part.type === "data-source"

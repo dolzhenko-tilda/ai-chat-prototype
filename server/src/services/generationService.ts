@@ -159,7 +159,7 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
     { title: "Knowledge base", url: "https://example.com/knowledge-base" },
   ];
   /** Mock source parts emitted live as paragraphs of assistant text complete
-   * (see `emitSourcesForCompletedParagraphs` below). Kept in a side list -
+   * (see `emitSourcesForCompletedUnits` below). Kept in a side list -
    * like `customJsonParts` - so they survive into the persisted message even
    * though they're injected manually onto the raw stream and never seen by
    * `toUIMessageStream`'s internal state builder. */
@@ -169,43 +169,86 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
   >[] = [];
   /** Per-text-part (keyed by the stream's `text-start`/`text-delta` chunk
    * id) state used to detect paragraph boundaries (`\n\n`) as text streams
-   * in, so a source can be attached to each paragraph the moment it's
-   * finished rather than only once the whole message is done. `textIndex`
-   * is this text part's ordinal among all text parts in the message (0-based),
-   * used as `SourcePartMessage.textPartIndex` so the client can match a
-   * source to the right paragraph even with several text parts. */
+   * in, so a source can be attached to each paragraph - or, for a list
+   * paragraph, to each of its list items - the moment it's finished rather
+   * than only once the whole message is done. `textIndex` is this text
+   * part's ordinal among all text parts in the message (0-based), used as
+   * `SourcePartMessage.textPartIndex` so the client can match a source to
+   * the right paragraph even with several text parts. */
   const textBuffers = new Map<
     string,
-    { buffer: string; completedParagraphs: number; textIndex: number }
+    { buffer: string; completedUnits: number; textIndex: number }
   >();
   let nextTextIndex = 0;
 
-  function countCompleteParagraphs(
-    buffer: string,
-    includeTrailing: boolean,
-  ): number {
-    const segments = buffer.split(/\n\s*\n+/);
-    const usable = includeTrailing ? segments : segments.slice(0, -1);
-    return usable.map((s) => s.trim()).filter(Boolean).length;
+  /** Matches a markdown list item marker (`-`/`*`/`+` or `1.`/`1)`) at the
+   * start of a line. */
+  const LIST_ITEM_RE = /^\s*(?:[-*+]|\d+[.)])\s+/;
+
+  /** A single "source-attachable" chunk of a text part: either a whole
+   * non-list paragraph, or one item of a list paragraph. `itemIndex` is only
+   * set for list items, letting the client attach the source to that
+   * specific `<li>` instead of the paragraph as a whole. */
+  interface SourceUnit {
+    paragraphIndex: number;
+    itemIndex?: number;
   }
 
-  /** Emits a `data-source` chunk for every newly-completed paragraph in the
-   * text part `textId` (buffered in `textBuffers`), skipping a random ~third
-   * of paragraphs so not every paragraph has a source. Pushes directly onto
-   * `gen.chunks`/`emitter` - the caller's generic `gen.chunks.push`/
-   * `appendChunk` at the bottom of the loop persists these too since it
-   * runs after this. */
-  function emitSourcesForCompletedParagraphs(
-    textId: string,
-    completedCount: number,
-  ) {
+  /** Splits `buffer` into paragraphs (blank-line separated, as markdown
+   * expects) and, for any paragraph that contains a markdown list, further
+   * splits it into its individual items - so each list item can be
+   * tracked/sourced independently instead of the list as a whole only
+   * getting one source. A paragraph can be a bare list, or have an intro
+   * line directly above the list with no blank line separating them (e.g.
+   * "Some intro:\n- item one\n- item two") - the intro text (if any) becomes
+   * its own unit alongside the item units, rather than the whole block being
+   * treated as a single plain paragraph. */
+  function splitIntoUnits(buffer: string): SourceUnit[] {
+    const blocks = buffer.split(/\n\s*\n+/);
+    const units: SourceUnit[] = [];
+    blocks.forEach((block, paragraphIndex) => {
+      const lines = block.split("\n");
+      const firstItemLine = lines.findIndex((line) => LIST_ITEM_RE.test(line));
+      if (firstItemLine === -1) {
+        if (block.trim()) units.push({ paragraphIndex });
+        return;
+      }
+      const introText = lines.slice(0, firstItemLine).join("\n").trim();
+      if (introText) units.push({ paragraphIndex });
+      let itemIndex = -1;
+      for (const line of lines.slice(firstItemLine)) {
+        if (LIST_ITEM_RE.test(line)) {
+          itemIndex += 1;
+          units.push({ paragraphIndex, itemIndex });
+        }
+      }
+    });
+    return units;
+  }
+
+  function countCompleteUnits(buffer: string, includeTrailing: boolean): number {
+    const units = splitIntoUnits(buffer);
+    return includeTrailing ? units.length : Math.max(units.length - 1, 0);
+  }
+
+  /** Emits a `data-source` chunk for every newly-completed unit (paragraph,
+   * or list item within a paragraph) in the text part `textId` (buffered in
+   * `textBuffers`). Every list item always gets a source; plain paragraphs
+   * still skip a random ~third so not every one has a source. Pushes
+   * directly onto `gen.chunks`/`emitter` - the caller's generic
+   * `gen.chunks.push`/`appendChunk` at the bottom of the loop persists these
+   * too since it runs after this. */
+  function emitSourcesForCompletedUnits(textId: string, completedCount: number) {
     const state = textBuffers.get(textId);
     if (!state) return;
-    while (state.completedParagraphs < completedCount) {
-      const paragraphIndex = state.completedParagraphs;
-      state.completedParagraphs += 1;
-      // Skip a random ~third of paragraphs so not every paragraph has a source.
-      if (Math.random() < 0.5) continue;
+    const units = splitIntoUnits(state.buffer);
+    while (state.completedUnits < completedCount) {
+      const unit = units[state.completedUnits];
+      state.completedUnits += 1;
+      if (!unit) continue;
+      // Plain paragraphs skip a random ~third so not every one has a source;
+      // list items always get one since each is its own distinct claim.
+      // if (unit.itemIndex === undefined && Math.random() < 0.5) continue;
       const source =
         mockSources[Math.floor(Math.random() * mockSources.length)];
       const sourceId = randomUUID();
@@ -213,7 +256,8 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
         title: source.title,
         url: source.url,
         textPartIndex: state.textIndex,
-        paragraphIndex,
+        paragraphIndex: unit.paragraphIndex,
+        ...(unit.itemIndex !== undefined ? { itemIndex: unit.itemIndex } : {}),
       };
       const sourceChunk: AppUIMessageChunk = {
         type: "data-source",
@@ -328,7 +372,7 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
         if (chunk.type === "text-start") {
           textBuffers.set(chunk.id, {
             buffer: "",
-            completedParagraphs: 0,
+            completedUnits: 0,
             textIndex: nextTextIndex,
           });
           nextTextIndex += 1;
@@ -337,21 +381,22 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
           const state = textBuffers.get(chunk.id);
           if (state) {
             state.buffer += chunk.delta;
-            // Only paragraphs followed by a blank line are "complete" while
-            // streaming (the trailing, still-growing paragraph is excluded).
-            emitSourcesForCompletedParagraphs(
+            // Only units (paragraphs, or list items) followed by more content
+            // are "complete" while streaming (the trailing, still-growing
+            // one is excluded).
+            emitSourcesForCompletedUnits(
               chunk.id,
-              countCompleteParagraphs(state.buffer, false),
+              countCompleteUnits(state.buffer, false),
             );
           }
         }
         if (chunk.type === "text-end") {
           const state = textBuffers.get(chunk.id);
           if (state) {
-            // The text is done, so the trailing paragraph is now complete too.
-            emitSourcesForCompletedParagraphs(
+            // The text is done, so the trailing unit is now complete too.
+            emitSourcesForCompletedUnits(
               chunk.id,
-              countCompleteParagraphs(state.buffer, true),
+              countCompleteUnits(state.buffer, true),
             );
           }
         }
