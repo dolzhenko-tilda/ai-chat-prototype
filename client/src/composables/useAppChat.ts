@@ -18,13 +18,11 @@ export function useAppChat(
   chatId: Ref<string>,
   requireApproval: Ref<boolean>,
   reasoningEffort: Ref<ReasoningEffort>,
-  sourceProbabilityPercent: Ref<number>,
 ) {
   const transport = new ServerChatTransport({
     baseUrl: api.baseUrl,
     requireApproval: () => requireApproval.value,
     reasoningEffort: () => reasoningEffort.value,
-    sourceProbabilityPercent: () => sourceProbabilityPercent.value,
   });
 
   const isLoadingHistory = ref(false);

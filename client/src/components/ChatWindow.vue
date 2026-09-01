@@ -8,12 +8,11 @@ import MessageList from "./MessageList.vue";
 import ChatInput from "./ChatInput.vue";
 
 const { chatId, newChat } = useChatId();
-const { requireApproval, reasoningEffort, sourceProbabilityPercent } = useChatSettings();
+const { requireApproval, reasoningEffort } = useChatSettings();
 const { chat, isLoadingHistory, historyError, reload } = useAppChat(
   chatId,
   requireApproval,
   reasoningEffort,
-  sourceProbabilityPercent,
 );
 
 // `chat.messages` is a shallowRef that ai-sdk mutates in place (push/replace by
@@ -110,12 +109,10 @@ async function onNewChat() {
       :status="chat.status.value"
       :require-approval="requireApproval"
       :reasoning-effort="reasoningEffort"
-      :source-probability-percent="sourceProbabilityPercent"
       @send="onSend"
       @stop="onStop"
       @update:require-approval="(v) => (requireApproval = v)"
       @update:reasoning-effort="(v) => (reasoningEffort = v)"
-      @update:source-probability-percent="(v) => (sourceProbabilityPercent = v)"
     />
   </div>
 </template>

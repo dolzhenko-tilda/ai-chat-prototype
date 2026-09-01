@@ -58,8 +58,7 @@ npm run start   # node dist/index.js (после build)
 {
   "message": { "role": "user", "parts": [{ "type": "text", "text": "..." }] },
   "requireApproval": false,
-  "reasoningEffort": "medium",
-  "sourceProbabilityPercent": 50
+  "reasoningEffort": "medium"
 }
 ```
 
@@ -67,7 +66,7 @@ npm run start   # node dist/index.js (после build)
 
 `reasoningEffort` — опциональный уровень "размышлений" модели: `"off" | "minimal" | "low" | "medium" | "high" | "xhigh"` (по умолчанию `"medium"`). Прокидывается в `streamText` как стандартизированная опция `reasoning` (`"off"` маппится на `"none"`, полностью отключая thinking у моделей, которые это поддерживают).
 
-`sourceProbabilityPercent` — опциональное число от `0` до `100` (по умолчанию `50`): вероятность в процентах, что обычный (не-списочный) абзац получит приложенный мок-источник. Элементы markdown-списков получают источник всегда, независимо от этого значения.
+Мок-источники (см. `server/src/services/mockSources.ts`) передаются модели через системный промпт вместе с инструкцией цитировать их как можно чаще; саму ссылку в формате `[title](url "source:title")` вставляет в markdown-ответ сама LLM, а не бэкенд. Фронт стилизует такие ссылки по CSS-селектору `a[title^="source:"]`.
 
 Сервер: сохраняет сообщение пользователя → достаёт всю предыдущую историю → отправляет всё в LLM → создаёт запись в `generation_state` и сообщение-ассистент со `status=streaming` → стримит ответ через SSE, попутно сохраняя чанки → по завершении помечает сообщение как `complete`/`aborted`/`error`.
 
@@ -78,7 +77,7 @@ npm run start   # node dist/index.js (после build)
 Перегенерация ответа ассистента. **Семантика:** `:messageId` — id **сообщения ассистента**, которое нужно перегенерировать. Сервер берёт всю историю строго **до** этого сообщения (не включая), удаляет его и все более поздние сообщения, и создаёт **новое** сообщение ассистента (с новым `id`) взамен.
 
 ```json
-{ "requireApproval": false, "reasoningEffort": "medium", "sourceProbabilityPercent": 50 }
+{ "requireApproval": false, "reasoningEffort": "medium" }
 ```
 
 Отвечает потоком SSE.
@@ -96,8 +95,7 @@ npm run start   # node dist/index.js (после build)
 {
   "message": { "role": "assistant", "parts": [ /* обновлённые tool-parts */ ] },
   "requireApproval": false,
-  "reasoningEffort": "medium",
-  "sourceProbabilityPercent": 50
+  "reasoningEffort": "medium"
 }
 ```
 

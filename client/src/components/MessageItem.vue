@@ -54,28 +54,11 @@ function toolNameFor(part: AppUIMessage["parts"][number]): string {
   return isToolUIPart(part) || isDynamicToolUIPart(part) ? getToolOrDynamicToolName(part) : "";
 }
 
-/** Mock sources are appended by the server as `data-source` parts (see
- * `emitSourcesForCompletedUnits` in generationService.ts), one per paragraph
- * - or, for a markdown list, one per list item - of assistant text that
- * wasn't randomly skipped. Emitted live as paragraphs/items complete during
- * streaming, and persisted with the message afterwards, so they're
- * available both mid-stream and on history reload. */
-const sourceParts = computed(() =>
-  props.message.parts.filter(
-    (part): part is Extract<AppUIMessage["parts"][number], { type: "data-source" }> => part.type === "data-source"
-  )
-);
-
-/** This text part's ordinal among all "text" parts in the message
- * (0-based) - matches `SourcePartMessage.textPartIndex` so sources can be
- * attached to the right text part even if a message has several. */
-function textPartIndex(part: AppUIMessage["parts"][number]): number {
-  return props.message.parts.filter(isTextUIPart).indexOf(part as never);
-}
-
-function sourcesForTextPart(index: number) {
-  return sourceParts.value.filter((part) => part.data.textPartIndex === index).map((part) => part.data);
-}
+/** Mock sources are now cited by the model itself as regular inline markdown
+ * links (`[title](url "source:title")`) inside its text - see the system
+ * prompt built in `generationService.ts`'s `buildSystemPrompt` - so `TextPart`
+ * needs no extra `sources` data; it just renders the markdown and styles any
+ * `a[title^="source:"]` anchor via CSS. */
 </script>
 
 <template>
@@ -88,7 +71,6 @@ function sourcesForTextPart(index: number) {
           v-if="isTextUIPart(part)"
           :text="part.text"
           :state="isStreamingThisMessage ? part.state : 'done'"
-          :sources="sourcesForTextPart(textPartIndex(part))"
         />
         <ReasoningPart
           v-else-if="isReasoningUIPart(part)"
@@ -109,8 +91,6 @@ function sourcesForTextPart(index: number) {
         />
         <ErrorPart v-else-if="part.type === 'data-error'" :message="part.data.message" />
         <CustomJsonPart v-else-if="part.type === 'data-custom-json'" :title="part.data.title" :count="part.data.count" />
-        <!-- data-source parts are rendered inline inside TextPart, not standalone -->
-
       </template>
       <span v-if="isStreamingThisMessage && message.parts.length === 0" class="message__typing">Thinking…</span>
     </div>
