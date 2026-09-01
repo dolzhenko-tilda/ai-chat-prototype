@@ -96,13 +96,26 @@ function onKeydown(event: KeyboardEvent) {
         <button
           v-if="status === 'streaming' || status === 'submitted'"
           type="button"
-          class="btn btn--danger"
+          class="btn btn--danger btn--icon"
+          title="Stop"
+          aria-label="Stop"
           @click="emit('stop')"
         >
-          Stop
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+            <rect x="4" y="4" width="16" height="16" rx="2" />
+          </svg>
         </button>
-        <button type="submit" class="btn btn--primary" :disabled="status === 'streaming' || status === 'submitted'">
-          Send
+        <button
+          type="submit"
+          class="btn btn--primary btn--icon"
+          title="Send"
+          aria-label="Send"
+          :disabled="status === 'streaming' || status === 'submitted'"
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 2 11 13" />
+            <path d="M22 2 15 22l-4-9-9-4z" />
+          </svg>
         </button>
       </div>
     </div>
@@ -176,5 +189,12 @@ function onKeydown(event: KeyboardEvent) {
 .chat-input__actions {
   display: flex;
   gap: 0.5rem;
+}
+.btn--icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.4rem;
+  line-height: 0;
 }
 </style>

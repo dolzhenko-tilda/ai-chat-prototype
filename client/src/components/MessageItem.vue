@@ -117,18 +117,40 @@ function sourcesForTextPart(index: number) {
 
     <div class="message__actions">
       <span v-if="statusBadge" class="message__badge">{{ statusBadge }}</span>
-      <button type="button" class="btn btn--ghost" title="Copy" @click="copyText">Copy</button>
-      <button type="button" class="btn btn--ghost" title="Delete" @click="emit('delete', message.id)">
-        Delete
+      <button type="button" class="btn btn--ghost btn--icon" title="Copy" aria-label="Copy" @click="copyText">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="9" y="9" width="12" height="12" rx="2" />
+          <path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        class="btn btn--ghost btn--icon"
+        title="Delete"
+        aria-label="Delete"
+        @click="emit('delete', message.id)"
+      >
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 6h18" />
+          <path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+          <path d="M19 6l-1 14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1L5 6" />
+          <path d="M10 11v6M14 11v6" />
+        </svg>
       </button>
       <button
         v-if="isAssistant"
         type="button"
-        class="btn btn--ghost"
+        class="btn btn--ghost btn--icon"
         title="Regenerate"
+        aria-label="Regenerate"
         @click="emit('regenerate', message.id)"
       >
-        Regenerate
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 12a9 9 0 0 1 15.5-6.3L21 8" />
+          <path d="M21 3v5h-5" />
+          <path d="M21 12a9 9 0 0 1-15.5 6.3L3 16" />
+          <path d="M3 21v-5h5" />
+        </svg>
       </button>
     </div>
   </div>
@@ -183,5 +205,12 @@ function sourcesForTextPart(index: number) {
   border-radius: 999px;
   padding: 0.1rem 0.5rem;
   margin-right: 0.25rem;
+}
+.btn--icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.3rem;
+  line-height: 0;
 }
 </style>
