@@ -57,11 +57,14 @@ npm run start   # node dist/index.js (после build)
 ```json
 {
   "message": { "role": "user", "parts": [{ "type": "text", "text": "..." }] },
-  "requireApproval": false
+  "requireApproval": false,
+  "reasoningEffort": "medium"
 }
 ```
 
 `requireApproval` — опциональный флаг (по умолчанию `false`); если `true`, вызовы "чувствительных" тулов (см. ниже про tool approval) потребуют явного подтверждения пользователя, прежде чем выполнятся.
+
+`reasoningEffort` — опциональный уровень "размышлений" модели: `"off" | "minimal" | "low" | "medium" | "high" | "xhigh"` (по умолчанию `"medium"`). Прокидывается в `streamText` как стандартизированная опция `reasoning` (`"off"` маппится на `"none"`, полностью отключая thinking у моделей, которые это поддерживают).
 
 Сервер: сохраняет сообщение пользователя → достаёт всю предыдущую историю → отправляет всё в LLM → создаёт запись в `generation_state` и сообщение-ассистент со `status=streaming` → стримит ответ через SSE, попутно сохраняя чанки → по завершении помечает сообщение как `complete`/`aborted`/`error`.
 
@@ -72,7 +75,7 @@ npm run start   # node dist/index.js (после build)
 Перегенерация ответа ассистента. **Семантика:** `:messageId` — id **сообщения ассистента**, которое нужно перегенерировать. Сервер берёт всю историю строго **до** этого сообщения (не включая), удаляет его и все более поздние сообщения, и создаёт **новое** сообщение ассистента (с новым `id`) взамен.
 
 ```json
-{ "requireApproval": false }
+{ "requireApproval": false, "reasoningEffort": "medium" }
 ```
 
 Отвечает потоком SSE.
@@ -89,7 +92,8 @@ npm run start   # node dist/index.js (после build)
 ```json
 {
   "message": { "role": "assistant", "parts": [ /* обновлённые tool-parts */ ] },
-  "requireApproval": false
+  "requireApproval": false,
+  "reasoningEffort": "medium"
 }
 ```
 

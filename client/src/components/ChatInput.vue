@@ -1,17 +1,29 @@
 <script setup lang="ts">
 import { ref } from "vue";
-import type { ChatStatus } from "../types/chat";
+import type { ChatStatus, ReasoningEffort } from "../types/chat";
+import { REASONING_EFFORT_LEVELS } from "../types/chat";
 
 const props = defineProps<{
   status: ChatStatus;
   requireApproval: boolean;
+  reasoningEffort: ReasoningEffort;
 }>();
 
 const emit = defineEmits<{
   send: [text: string];
   stop: [];
   "update:requireApproval": [value: boolean];
+  "update:reasoningEffort": [value: ReasoningEffort];
 }>();
+
+const REASONING_EFFORT_LABELS: Record<ReasoningEffort, string> = {
+  off: "Off",
+  minimal: "Minimal",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra high",
+};
 
 const text = ref("");
 
@@ -40,14 +52,29 @@ function onKeydown(event: KeyboardEvent) {
       @keydown="onKeydown"
     />
     <div class="chat-input__row">
-      <label class="chat-input__approval">
-        <input
-          type="checkbox"
-          :checked="requireApproval"
-          @change="emit('update:requireApproval', ($event.target as HTMLInputElement).checked)"
-        />
-        Require approval for sensitive tools
-      </label>
+      <div class="chat-input__options">
+        <label class="chat-input__approval">
+          <input
+            type="checkbox"
+            :checked="requireApproval"
+            @change="emit('update:requireApproval', ($event.target as HTMLInputElement).checked)"
+          />
+          Require approval for sensitive tools
+        </label>
+
+        <label class="chat-input__reasoning">
+          Thinking:
+          <select
+            class="chat-input__reasoning-select"
+            :value="reasoningEffort"
+            @change="emit('update:reasoningEffort', ($event.target as HTMLSelectElement).value as ReasoningEffort)"
+          >
+            <option v-for="level in REASONING_EFFORT_LEVELS" :key="level" :value="level">
+              {{ REASONING_EFFORT_LABELS[level] }}
+            </option>
+          </select>
+        </label>
+      </div>
 
       <div class="chat-input__actions">
         <button
@@ -90,12 +117,34 @@ function onKeydown(event: KeyboardEvent) {
   gap: 1rem;
   flex-wrap: wrap;
 }
+.chat-input__options {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
 .chat-input__approval {
   display: flex;
   align-items: center;
   gap: 0.4rem;
   font-size: 0.85rem;
   color: var(--text-muted);
+}
+.chat-input__reasoning {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+.chat-input__reasoning-select {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  color: inherit;
 }
 .chat-input__actions {
   display: flex;

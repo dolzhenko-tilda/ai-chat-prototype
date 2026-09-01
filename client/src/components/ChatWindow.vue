@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed } from "vue";
 import { useChatId } from "../composables/useChatId";
 import { useAppChat } from "../composables/useAppChat";
+import { useChatSettings } from "../composables/useChatSettings";
 import { api } from "../services/api";
 import MessageList from "./MessageList.vue";
 import ChatInput from "./ChatInput.vue";
 
 const { chatId, newChat } = useChatId();
-const requireApproval = ref(false);
-const { chat, isLoadingHistory, historyError, reload } = useAppChat(chatId, requireApproval);
+const { requireApproval, reasoningEffort } = useChatSettings();
+const { chat, isLoadingHistory, historyError, reload } = useAppChat(chatId, requireApproval, reasoningEffort);
 
 // `chat.messages` is a shallowRef that ai-sdk mutates in place (push/replace by
 // index) followed by `triggerRef` - the array reference itself never changes.
@@ -103,9 +104,11 @@ async function onNewChat() {
     <ChatInput
       :status="chat.status.value"
       :require-approval="requireApproval"
+      :reasoning-effort="reasoningEffort"
       @send="onSend"
       @stop="onStop"
       @update:require-approval="(v) => (requireApproval = v)"
+      @update:reasoning-effort="(v) => (reasoningEffort = v)"
     />
   </div>
 </template>

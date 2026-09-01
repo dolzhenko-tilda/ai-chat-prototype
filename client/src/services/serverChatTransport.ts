@@ -1,11 +1,13 @@
 import { parseJsonEventStream, uiMessageChunkSchema } from "ai";
 import type { ChatRequestOptions, ChatTransport, UIMessageChunk } from "ai";
-import type { AppUIMessage } from "../types/chat";
+import type { AppUIMessage, ReasoningEffort } from "../types/chat";
 
 export interface ServerChatTransportOptions {
   baseUrl: string;
   /** Whether tool calls to sensitive server tools should require user approval. */
   requireApproval: () => boolean;
+  /** Reasoning effort level to send with each request (see `ReasoningEffort`). */
+  reasoningEffort: () => ReasoningEffort;
 }
 
 /**
@@ -65,11 +67,16 @@ export class ServerChatTransport implements ChatTransport<AppUIMessage> {
     ReadableStream<UIMessageChunk>
   > {
     const requireApproval = this.options.requireApproval();
+    const reasoningEffort = this.options.reasoningEffort();
 
     if (trigger === "regenerate-message") {
       const targetId = messageId ?? messages[messages.length - 1]?.id;
       if (!targetId) throw new Error("regenerate-message requires a messageId");
-      return this.post(`/api/chats/${chatId}/messages/${targetId}/regenerate`, { requireApproval }, abortSignal);
+      return this.post(
+        `/api/chats/${chatId}/messages/${targetId}/regenerate`,
+        { requireApproval, reasoningEffort },
+        abortSignal
+      );
     }
 
     // trigger === "submit-message"
@@ -83,14 +90,18 @@ export class ServerChatTransport implements ChatTransport<AppUIMessage> {
       // updated message to /continue so the server can feed it back to the LLM.
       return this.post(
         `/api/chats/${chatId}/messages/${last.id}/continue`,
-        { message: last, requireApproval },
+        { message: last, requireApproval, reasoningEffort },
         abortSignal
       );
     }
 
     // Normal case: a brand new user message. Per spec, only this single
     // message is sent - never the full history (server keeps it in SQLite).
-    return this.post(`/api/chats/${chatId}/messages`, { message: last, requireApproval }, abortSignal);
+    return this.post(
+      `/api/chats/${chatId}/messages`,
+      { message: last, requireApproval, reasoningEffort },
+      abortSignal
+    );
   }
 
   async reconnectToStream({

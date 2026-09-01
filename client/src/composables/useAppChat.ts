@@ -3,7 +3,7 @@ import { useChat } from "@ai-sdk/vue";
 import { ref, watch, type Ref } from "vue";
 import { ServerChatTransport } from "../services/serverChatTransport";
 import { api } from "../services/api";
-import type { AppUIMessage } from "../types/chat";
+import type { AppUIMessage, ReasoningEffort } from "../types/chat";
 
 /**
  * Wires up `@ai-sdk/vue`'s `useChat` against our server transport, and adds
@@ -14,10 +14,11 @@ import type { AppUIMessage } from "../types/chat";
  *    (section 7.1.3)
  *  - auto-executing the client-side `logToConsole` tool (section 7.6)
  */
-export function useAppChat(chatId: Ref<string>, requireApproval: Ref<boolean>) {
+export function useAppChat(chatId: Ref<string>, requireApproval: Ref<boolean>, reasoningEffort: Ref<ReasoningEffort>) {
   const transport = new ServerChatTransport({
     baseUrl: api.baseUrl,
     requireApproval: () => requireApproval.value,
+    reasoningEffort: () => reasoningEffort.value,
   });
 
   const isLoadingHistory = ref(false);

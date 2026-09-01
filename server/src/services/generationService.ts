@@ -13,6 +13,7 @@ import type {
   AppUIMessage,
   AppUIMessageChunk,
   MessageStatus,
+  ReasoningEffort,
 } from "../types.js";
 
 export interface ActiveGeneration {
@@ -74,6 +75,14 @@ function buildToolApproval(requireApproval: boolean) {
   return config;
 }
 
+/** Maps our client-facing `ReasoningEffort` ("off" included) to the AI SDK's
+ * standardized `reasoning` call option, which the openai-compatible provider
+ * forwards as `reasoning_effort` ("none" genuinely disables thinking on
+ * models that support it). */
+function toModelReasoningEffort(effort: ReasoningEffort) {
+  return effort === "off" ? "none" : effort;
+}
+
 function persistAssistantMessage(
   chatId: string,
   messageId: string,
@@ -110,6 +119,8 @@ export interface RunGenerationOptions {
   /** Full conversation to send to the model, ending with the latest user or assistant (tool-updated) message. */
   conversation: AppUIMessage[];
   requireApproval: boolean;
+  /** Reasoning effort to use for this generation ("off" disables thinking). Defaults to "medium". */
+  reasoningEffort?: ReasoningEffort;
 }
 
 /**
@@ -119,7 +130,13 @@ export interface RunGenerationOptions {
  * writes the final message state to SQLite once the stream ends.
  */
 export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
-  const { chatId, assistantMessageId, conversation, requireApproval } = options;
+  const {
+    chatId,
+    assistantMessageId,
+    conversation,
+    requireApproval,
+    reasoningEffort = "medium",
+  } = options;
 
   // Only one active generation per chat at a time; a new one supersedes it.
   const existing = activeGenerations.get(chatId);
@@ -226,7 +243,10 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
     return units;
   }
 
-  function countCompleteUnits(buffer: string, includeTrailing: boolean): number {
+  function countCompleteUnits(
+    buffer: string,
+    includeTrailing: boolean,
+  ): number {
     const units = splitIntoUnits(buffer);
     return includeTrailing ? units.length : Math.max(units.length - 1, 0);
   }
@@ -238,7 +258,10 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
    * directly onto `gen.chunks`/`emitter` - the caller's generic
    * `gen.chunks.push`/`appendChunk` at the bottom of the loop persists these
    * too since it runs after this. */
-  function emitSourcesForCompletedUnits(textId: string, completedCount: number) {
+  function emitSourcesForCompletedUnits(
+    textId: string,
+    completedCount: number,
+  ) {
     const state = textBuffers.get(textId);
     if (!state) return;
     const units = splitIntoUnits(state.buffer);
@@ -246,9 +269,8 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
       const unit = units[state.completedUnits];
       state.completedUnits += 1;
       if (!unit) continue;
-      // Plain paragraphs skip a random ~third so not every one has a source;
-      // list items always get one since each is its own distinct claim.
-      // if (unit.itemIndex === undefined && Math.random() < 0.5) continue;
+      // Paragraphs skip a random ~half so not every one has a source;
+      if (Math.random() < 0.5) continue;
       const source =
         mockSources[Math.floor(Math.random() * mockSources.length)];
       const sourceId = randomUUID();
@@ -312,6 +334,7 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
         messages: modelMessages,
         tools,
         toolApproval: buildToolApproval(requireApproval),
+        reasoning: toModelReasoningEffort(reasoningEffort),
         stopWhen: stepCountIs(5),
         abortSignal: abortController.signal,
       });

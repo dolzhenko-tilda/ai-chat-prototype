@@ -33,6 +33,25 @@ export type AppTools = InferUITools<typeof tools>;
 
 export type MessageStatus = "complete" | "streaming" | "aborted" | "error";
 
+/** Reasoning effort levels accepted from the client (see the AI SDK's
+ * standardized `reasoning` call option used in generationService.ts).
+ * "off" disables thinking entirely. */
+export const REASONING_EFFORT_LEVELS = [
+  "off",
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+] as const;
+
+export type ReasoningEffort = (typeof REASONING_EFFORT_LEVELS)[number];
+
+/** Percentage (0-100) chance that a plain paragraph gets a mock source
+ * attached (see `emitSourcesForCompletedUnits` in generationService.ts).
+ * List items always get one regardless of this setting. */
+export const DEFAULT_SOURCE_PROBABILITY_PERCENT = 0;
+
 /** Message-level metadata surfaced to the client (e.g. to render an "aborted"/"error" badge on history load). */
 export type AppUIMessageMetadata = {
   status: MessageStatus;

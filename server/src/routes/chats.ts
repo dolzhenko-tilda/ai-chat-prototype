@@ -13,7 +13,10 @@ import {
   subscribeToGeneration,
 } from "../services/generationService.js";
 import { endSse, startSse, writeChunk } from "../utils/sse.js";
+import { REASONING_EFFORT_LEVELS } from "../types.js";
 import type { AppUIMessage, MessageRow } from "../types.js";
+
+const reasoningEffortSchema = z.enum(REASONING_EFFORT_LEVELS).optional();
 
 export const chatsRouter = Router();
 
@@ -62,6 +65,7 @@ chatsRouter.post("/:chatId/messages", (req, res) => {
   const bodySchema = z.object({
     message: uiMessageSchema,
     requireApproval: z.boolean().optional(),
+    reasoningEffort: reasoningEffortSchema,
   });
   const parsed = bodySchema.safeParse(req.body);
   if (!parsed.success) {
@@ -93,6 +97,7 @@ chatsRouter.post("/:chatId/messages", (req, res) => {
     assistantMessageId,
     conversation: [...history, userMessage],
     requireApproval: parsed.data.requireApproval ?? false,
+    reasoningEffort: parsed.data.reasoningEffort,
   });
   streamGenerationToResponse(res, gen);
 });
@@ -106,7 +111,10 @@ chatsRouter.post("/:chatId/messages", (req, res) => {
  */
 chatsRouter.post("/:chatId/messages/:messageId/regenerate", (req, res) => {
   const { chatId, messageId } = req.params;
-  const bodySchema = z.object({ requireApproval: z.boolean().optional() });
+  const bodySchema = z.object({
+    requireApproval: z.boolean().optional(),
+    reasoningEffort: reasoningEffortSchema,
+  });
   const parsed = bodySchema.safeParse(req.body ?? {});
   if (!parsed.success) {
     res.status(400).json({ error: "Invalid body", details: parsed.error.flatten() });
@@ -141,6 +149,7 @@ chatsRouter.post("/:chatId/messages/:messageId/regenerate", (req, res) => {
     assistantMessageId,
     conversation: history,
     requireApproval: parsed.data.requireApproval ?? false,
+    reasoningEffort: parsed.data.reasoningEffort,
   });
   streamGenerationToResponse(res, gen);
 });
@@ -158,6 +167,7 @@ chatsRouter.post("/:chatId/messages/:messageId/continue", (req, res) => {
   const bodySchema = z.object({
     message: uiMessageSchema,
     requireApproval: z.boolean().optional(),
+    reasoningEffort: reasoningEffortSchema,
   });
   const parsed = bodySchema.safeParse(req.body);
   if (!parsed.success) {
@@ -194,6 +204,7 @@ chatsRouter.post("/:chatId/messages/:messageId/continue", (req, res) => {
     assistantMessageId: messageId,
     conversation: [...history, updatedAssistantMessage],
     requireApproval: parsed.data.requireApproval ?? false,
+    reasoningEffort: parsed.data.reasoningEffort,
   });
   streamGenerationToResponse(res, gen);
 });
