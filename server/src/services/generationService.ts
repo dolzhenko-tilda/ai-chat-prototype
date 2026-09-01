@@ -153,23 +153,106 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
     AppUIMessage["parts"][number],
     { type: "data-custom-json" }
   >[] = [];
+  const mockSources = [
+    { title: "Tilda Help Center", url: "https://www.tilda.cc/help/" },
+    { title: "Product docs", url: "https://example.com/product-docs" },
+    { title: "Knowledge base", url: "https://example.com/knowledge-base" },
+  ];
+  /** Mock source parts emitted live as paragraphs of assistant text complete
+   * (see `emitSourcesForCompletedParagraphs` below). Kept in a side list -
+   * like `customJsonParts` - so they survive into the persisted message even
+   * though they're injected manually onto the raw stream and never seen by
+   * `toUIMessageStream`'s internal state builder. */
+  const sourceParts: Extract<
+    AppUIMessage["parts"][number],
+    { type: "data-source" }
+  >[] = [];
+  /** Per-text-part (keyed by the stream's `text-start`/`text-delta` chunk
+   * id) state used to detect paragraph boundaries (`\n\n`) as text streams
+   * in, so a source can be attached to each paragraph the moment it's
+   * finished rather than only once the whole message is done. `textIndex`
+   * is this text part's ordinal among all text parts in the message (0-based),
+   * used as `SourcePartMessage.textPartIndex` so the client can match a
+   * source to the right paragraph even with several text parts. */
+  const textBuffers = new Map<
+    string,
+    { buffer: string; completedParagraphs: number; textIndex: number }
+  >();
+  let nextTextIndex = 0;
 
-  /** Appends `data-error`/`data-custom-json` parts (if any were seen) to
-   * whatever ai-sdk's own state builder produced. Necessary because these
-   * chunks are emitted manually onto the raw stream (see the `for await`
-   * loop below) and never passed through `toUIMessageStream`'s internal
-   * state builder, so they're missing from `onEnd`'s `responseMessage.parts`
-   * - without this, they'd be visible in the live stream but vanish once
-   * the message is persisted and reloaded from history. */
+  function countCompleteParagraphs(
+    buffer: string,
+    includeTrailing: boolean,
+  ): number {
+    const segments = buffer.split(/\n\s*\n+/);
+    const usable = includeTrailing ? segments : segments.slice(0, -1);
+    return usable.map((s) => s.trim()).filter(Boolean).length;
+  }
+
+  /** Emits a `data-source` chunk for every newly-completed paragraph in the
+   * text part `textId` (buffered in `textBuffers`), skipping a random ~third
+   * of paragraphs so not every paragraph has a source. Pushes directly onto
+   * `gen.chunks`/`emitter` - the caller's generic `gen.chunks.push`/
+   * `appendChunk` at the bottom of the loop persists these too since it
+   * runs after this. */
+  function emitSourcesForCompletedParagraphs(
+    textId: string,
+    completedCount: number,
+  ) {
+    const state = textBuffers.get(textId);
+    if (!state) return;
+    while (state.completedParagraphs < completedCount) {
+      const paragraphIndex = state.completedParagraphs;
+      state.completedParagraphs += 1;
+      // Skip a random ~third of paragraphs so not every paragraph has a source.
+      if (Math.random() < 0.5) continue;
+      const source =
+        mockSources[Math.floor(Math.random() * mockSources.length)];
+      const sourceId = randomUUID();
+      const data = {
+        title: source.title,
+        url: source.url,
+        textPartIndex: state.textIndex,
+        paragraphIndex,
+      };
+      const sourceChunk: AppUIMessageChunk = {
+        type: "data-source",
+        id: sourceId,
+        data,
+      };
+      sourceParts.push({ type: "data-source", id: sourceId, data });
+      gen.chunks.push(sourceChunk);
+      emitter.emit("chunk", sourceChunk);
+    }
+  }
+
+  /** Appends `data-error`/`data-custom-json`/`data-source` parts (if any
+   * were seen) to whatever ai-sdk's own state builder produced. Necessary
+   * because these chunks are emitted manually onto the raw stream (see the
+   * `for await` loop below) and never passed through `toUIMessageStream`'s
+   * internal state builder, so they're missing from `onEnd`'s
+   * `responseMessage.parts` - without this, they'd be visible in the live
+   * stream but vanish once the message is persisted and reloaded from
+   * history. */
   function finalizeParts(parts: AppUIMessage["parts"]): AppUIMessage["parts"] {
     let result = parts;
     for (const part of customJsonParts) {
-      if (!result.some((p) => p.type === "data-custom-json" && p.id === part.id)) {
+      if (
+        !result.some((p) => p.type === "data-custom-json" && p.id === part.id)
+      ) {
+        result = [...result, part];
+      }
+    }
+    for (const part of sourceParts) {
+      if (!result.some((p) => p.type === "data-source" && p.id === part.id)) {
         result = [...result, part];
       }
     }
     if (lastErrorText && !result.some((p) => p.type === "data-error")) {
-      result = [...result, { type: "data-error", data: { message: lastErrorText } }];
+      result = [
+        ...result,
+        { type: "data-error", data: { message: lastErrorText } },
+      ];
     }
     return result;
   }
@@ -241,6 +324,36 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
           });
           gen.chunks.push(customJsonChunk);
           emitter.emit("chunk", customJsonChunk);
+        }
+        if (chunk.type === "text-start") {
+          textBuffers.set(chunk.id, {
+            buffer: "",
+            completedParagraphs: 0,
+            textIndex: nextTextIndex,
+          });
+          nextTextIndex += 1;
+        }
+        if (chunk.type === "text-delta") {
+          const state = textBuffers.get(chunk.id);
+          if (state) {
+            state.buffer += chunk.delta;
+            // Only paragraphs followed by a blank line are "complete" while
+            // streaming (the trailing, still-growing paragraph is excluded).
+            emitSourcesForCompletedParagraphs(
+              chunk.id,
+              countCompleteParagraphs(state.buffer, false),
+            );
+          }
+        }
+        if (chunk.type === "text-end") {
+          const state = textBuffers.get(chunk.id);
+          if (state) {
+            // The text is done, so the trailing paragraph is now complete too.
+            emitSourcesForCompletedParagraphs(
+              chunk.id,
+              countCompleteParagraphs(state.buffer, true),
+            );
+          }
         }
         gen.chunks.push(chunk);
         emitter.emit("chunk", chunk);

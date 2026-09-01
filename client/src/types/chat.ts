@@ -25,9 +25,21 @@ export type CustomJsonPartMessage = {
   count: number;
 };
 
+export type SourcePartMessage = {
+  title: string;
+  url: string;
+  /** Ordinal index of the text part this source's paragraph belongs to, among
+   * all "text" parts in the message (0-based; usually just one text part per
+   * message, but this keeps sources correctly attached if there are more). */
+  textPartIndex: number;
+  /** Index (within that text part) of the paragraph this source is attached to. */
+  paragraphIndex: number;
+};
+
 export type AppUIDataTypes = {
   error: { message: string };
   ["custom-json"]: CustomJsonPartMessage;
+  source: SourcePartMessage;
 };
 
 export type MessageStatus = "complete" | "streaming" | "aborted" | "error";
