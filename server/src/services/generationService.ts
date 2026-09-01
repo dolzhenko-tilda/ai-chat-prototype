@@ -9,6 +9,9 @@ import {
 import { model, tools, APPROVAL_GATED_TOOLS } from "./llm.js";
 import { messagesRepository } from "../repositories/messagesRepository.js";
 import { generationStateRepository } from "../repositories/generationStateRepository.js";
+import {
+  DEFAULT_SOURCE_PROBABILITY_PERCENT,
+} from "../types.js";
 import type {
   AppUIMessage,
   AppUIMessageChunk,
@@ -121,6 +124,8 @@ export interface RunGenerationOptions {
   requireApproval: boolean;
   /** Reasoning effort to use for this generation ("off" disables thinking). Defaults to "medium". */
   reasoningEffort?: ReasoningEffort;
+  /** Percentage (0-100) chance that a plain paragraph gets a mock source attached (list items always get one). Defaults to `DEFAULT_SOURCE_PROBABILITY_PERCENT`. */
+  sourceProbabilityPercent?: number;
 }
 
 /**
@@ -136,6 +141,7 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
     conversation,
     requireApproval,
     reasoningEffort = "medium",
+    sourceProbabilityPercent = DEFAULT_SOURCE_PROBABILITY_PERCENT,
   } = options;
 
   // Only one active generation per chat at a time; a new one supersedes it.
@@ -254,10 +260,10 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
   /** Emits a `data-source` chunk for every newly-completed unit (paragraph,
    * or list item within a paragraph) in the text part `textId` (buffered in
    * `textBuffers`). Every list item always gets a source; plain paragraphs
-   * still skip a random ~third so not every one has a source. Pushes
-   * directly onto `gen.chunks`/`emitter` - the caller's generic
-   * `gen.chunks.push`/`appendChunk` at the bottom of the loop persists these
-   * too since it runs after this. */
+   * only get one with `sourceProbabilityPercent`% probability (user-
+   * controlled via the UI). Pushes directly onto `gen.chunks`/`emitter` -
+   * the caller's generic `gen.chunks.push`/`appendChunk` at the bottom of
+   * the loop persists these too since it runs after this. */
   function emitSourcesForCompletedUnits(
     textId: string,
     completedCount: number,
@@ -269,8 +275,14 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
       const unit = units[state.completedUnits];
       state.completedUnits += 1;
       if (!unit) continue;
-      // Paragraphs skip a random ~half so not every one has a source;
-      if (Math.random() < 0.5) continue;
+      // Plain paragraphs only get a source with the configured probability;
+      // list items always get one since each is its own distinct claim.
+      if (
+        unit.itemIndex === undefined &&
+        Math.random() * 100 >= sourceProbabilityPercent
+      ) {
+        continue;
+      }
       const source =
         mockSources[Math.floor(Math.random() * mockSources.length)];
       const sourceId = randomUUID();

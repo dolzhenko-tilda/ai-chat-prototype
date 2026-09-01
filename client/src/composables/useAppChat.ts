@@ -14,11 +14,17 @@ import type { AppUIMessage, ReasoningEffort } from "../types/chat";
  *    (section 7.1.3)
  *  - auto-executing the client-side `logToConsole` tool (section 7.6)
  */
-export function useAppChat(chatId: Ref<string>, requireApproval: Ref<boolean>, reasoningEffort: Ref<ReasoningEffort>) {
+export function useAppChat(
+  chatId: Ref<string>,
+  requireApproval: Ref<boolean>,
+  reasoningEffort: Ref<ReasoningEffort>,
+  sourceProbabilityPercent: Ref<number>,
+) {
   const transport = new ServerChatTransport({
     baseUrl: api.baseUrl,
     requireApproval: () => requireApproval.value,
     reasoningEffort: () => reasoningEffort.value,
+    sourceProbabilityPercent: () => sourceProbabilityPercent.value,
   });
 
   const isLoadingHistory = ref(false);

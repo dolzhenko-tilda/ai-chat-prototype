@@ -8,6 +8,8 @@ export interface ServerChatTransportOptions {
   requireApproval: () => boolean;
   /** Reasoning effort level to send with each request (see `ReasoningEffort`). */
   reasoningEffort: () => ReasoningEffort;
+  /** Percentage (0-100) chance a plain paragraph gets a mock source attached. */
+  sourceProbabilityPercent: () => number;
 }
 
 /**
@@ -68,13 +70,14 @@ export class ServerChatTransport implements ChatTransport<AppUIMessage> {
   > {
     const requireApproval = this.options.requireApproval();
     const reasoningEffort = this.options.reasoningEffort();
+    const sourceProbabilityPercent = this.options.sourceProbabilityPercent();
 
     if (trigger === "regenerate-message") {
       const targetId = messageId ?? messages[messages.length - 1]?.id;
       if (!targetId) throw new Error("regenerate-message requires a messageId");
       return this.post(
         `/api/chats/${chatId}/messages/${targetId}/regenerate`,
-        { requireApproval, reasoningEffort },
+        { requireApproval, reasoningEffort, sourceProbabilityPercent },
         abortSignal
       );
     }
@@ -90,7 +93,7 @@ export class ServerChatTransport implements ChatTransport<AppUIMessage> {
       // updated message to /continue so the server can feed it back to the LLM.
       return this.post(
         `/api/chats/${chatId}/messages/${last.id}/continue`,
-        { message: last, requireApproval, reasoningEffort },
+        { message: last, requireApproval, reasoningEffort, sourceProbabilityPercent },
         abortSignal
       );
     }
@@ -99,7 +102,7 @@ export class ServerChatTransport implements ChatTransport<AppUIMessage> {
     // message is sent - never the full history (server keeps it in SQLite).
     return this.post(
       `/api/chats/${chatId}/messages`,
-      { message: last, requireApproval, reasoningEffort },
+      { message: last, requireApproval, reasoningEffort, sourceProbabilityPercent },
       abortSignal
     );
   }

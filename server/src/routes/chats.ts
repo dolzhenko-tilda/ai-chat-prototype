@@ -17,6 +17,7 @@ import { REASONING_EFFORT_LEVELS } from "../types.js";
 import type { AppUIMessage, MessageRow } from "../types.js";
 
 const reasoningEffortSchema = z.enum(REASONING_EFFORT_LEVELS).optional();
+const sourceProbabilityPercentSchema = z.number().min(0).max(100).optional();
 
 export const chatsRouter = Router();
 
@@ -66,6 +67,7 @@ chatsRouter.post("/:chatId/messages", (req, res) => {
     message: uiMessageSchema,
     requireApproval: z.boolean().optional(),
     reasoningEffort: reasoningEffortSchema,
+    sourceProbabilityPercent: sourceProbabilityPercentSchema,
   });
   const parsed = bodySchema.safeParse(req.body);
   if (!parsed.success) {
@@ -98,6 +100,7 @@ chatsRouter.post("/:chatId/messages", (req, res) => {
     conversation: [...history, userMessage],
     requireApproval: parsed.data.requireApproval ?? false,
     reasoningEffort: parsed.data.reasoningEffort,
+    sourceProbabilityPercent: parsed.data.sourceProbabilityPercent,
   });
   streamGenerationToResponse(res, gen);
 });
@@ -114,6 +117,7 @@ chatsRouter.post("/:chatId/messages/:messageId/regenerate", (req, res) => {
   const bodySchema = z.object({
     requireApproval: z.boolean().optional(),
     reasoningEffort: reasoningEffortSchema,
+    sourceProbabilityPercent: sourceProbabilityPercentSchema,
   });
   const parsed = bodySchema.safeParse(req.body ?? {});
   if (!parsed.success) {
@@ -150,6 +154,7 @@ chatsRouter.post("/:chatId/messages/:messageId/regenerate", (req, res) => {
     conversation: history,
     requireApproval: parsed.data.requireApproval ?? false,
     reasoningEffort: parsed.data.reasoningEffort,
+    sourceProbabilityPercent: parsed.data.sourceProbabilityPercent,
   });
   streamGenerationToResponse(res, gen);
 });
@@ -168,6 +173,7 @@ chatsRouter.post("/:chatId/messages/:messageId/continue", (req, res) => {
     message: uiMessageSchema,
     requireApproval: z.boolean().optional(),
     reasoningEffort: reasoningEffortSchema,
+    sourceProbabilityPercent: sourceProbabilityPercentSchema,
   });
   const parsed = bodySchema.safeParse(req.body);
   if (!parsed.success) {
@@ -205,6 +211,7 @@ chatsRouter.post("/:chatId/messages/:messageId/continue", (req, res) => {
     conversation: [...history, updatedAssistantMessage],
     requireApproval: parsed.data.requireApproval ?? false,
     reasoningEffort: parsed.data.reasoningEffort,
+    sourceProbabilityPercent: parsed.data.sourceProbabilityPercent,
   });
   streamGenerationToResponse(res, gen);
 });

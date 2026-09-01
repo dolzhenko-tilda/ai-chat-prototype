@@ -7,6 +7,7 @@ const props = defineProps<{
   status: ChatStatus;
   requireApproval: boolean;
   reasoningEffort: ReasoningEffort;
+  sourceProbabilityPercent: number;
 }>();
 
 const emit = defineEmits<{
@@ -14,6 +15,7 @@ const emit = defineEmits<{
   stop: [];
   "update:requireApproval": [value: boolean];
   "update:reasoningEffort": [value: ReasoningEffort];
+  "update:sourceProbabilityPercent": [value: number];
 }>();
 
 const REASONING_EFFORT_LABELS: Record<ReasoningEffort, string> = {
@@ -74,6 +76,20 @@ function onKeydown(event: KeyboardEvent) {
             </option>
           </select>
         </label>
+
+        <label class="chat-input__source-probability">
+          Sources:
+          <input
+            type="range"
+            class="chat-input__source-probability-range"
+            min="0"
+            max="100"
+            step="10"
+            :value="sourceProbabilityPercent"
+            @input="emit('update:sourceProbabilityPercent', Number(($event.target as HTMLInputElement).value))"
+          />
+          {{ sourceProbabilityPercent }}%
+        </label>
       </div>
 
       <div class="chat-input__actions">
@@ -127,24 +143,35 @@ function onKeydown(event: KeyboardEvent) {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  font-size: 0.85rem;
+  font-size: 0.75rem;
   color: var(--text-muted);
 }
 .chat-input__reasoning {
   display: flex;
   align-items: center;
   gap: 0.4rem;
-  font-size: 0.85rem;
+  font-size: 0.75rem;
   color: var(--text-muted);
 }
 .chat-input__reasoning-select {
   font: inherit;
-  font-size: 0.85rem;
+  font-size: 0.75rem;
   padding: 0.15rem 0.4rem;
   border-radius: 6px;
   border: 1px solid var(--border);
   background: var(--surface-1);
   color: inherit;
+}
+.chat-input__source-probability {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+.chat-input__source-probability-range {
+  width: 80px;
+  accent-color: var(--accent, currentColor);
 }
 .chat-input__actions {
   display: flex;
