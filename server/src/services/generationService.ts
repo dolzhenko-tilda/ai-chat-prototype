@@ -149,17 +149,29 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
   let finalMessage: AppUIMessage | undefined;
   let finalStatus: MessageStatus = "complete";
   let lastErrorText: string | undefined;
+  const customJsonParts: Extract<
+    AppUIMessage["parts"][number],
+    { type: "data-custom-json" }
+  >[] = [];
 
-  /** Appends a `data-error` part (if we saw one) to whatever ai-sdk's own
-   * state builder produced. Necessary because the built-in `error` chunk
-   * type is intentionally *not* turned into a message part upstream (it
-   * only feeds an `onError` callback) - without this, a failed generation
-   * would persist with empty/partial `parts` and no visible trace of the
-   * error once the page is reloaded. */
+  /** Appends `data-error`/`data-custom-json` parts (if any were seen) to
+   * whatever ai-sdk's own state builder produced. Necessary because these
+   * chunks are emitted manually onto the raw stream (see the `for await`
+   * loop below) and never passed through `toUIMessageStream`'s internal
+   * state builder, so they're missing from `onEnd`'s `responseMessage.parts`
+   * - without this, they'd be visible in the live stream but vanish once
+   * the message is persisted and reloaded from history. */
   function finalizeParts(parts: AppUIMessage["parts"]): AppUIMessage["parts"] {
-    if (!lastErrorText) return parts;
-    if (parts.some((p) => p.type === "data-error")) return parts;
-    return [...parts, { type: "data-error", data: { message: lastErrorText } }];
+    let result = parts;
+    for (const part of customJsonParts) {
+      if (!result.some((p) => p.type === "data-custom-json" && p.id === part.id)) {
+        result = [...result, part];
+      }
+    }
+    if (lastErrorText && !result.some((p) => p.type === "data-error")) {
+      result = [...result, { type: "data-error", data: { message: lastErrorText } }];
+    }
+    return result;
   }
 
   void (async () => {
@@ -213,14 +225,20 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
           emitter.emit("chunk", dataErrorChunk);
         }
         if (chunk.type === "finish-step") {
+          const customJsonId = randomUUID();
           const customJsonChunk: AppUIMessageChunk = {
             type: "data-custom-json",
-            id: randomUUID(),
+            id: customJsonId,
             data: {
               title: "Chunks",
               count: gen.chunks.length,
             },
           };
+          customJsonParts.push({
+            type: "data-custom-json",
+            id: customJsonId,
+            data: customJsonChunk.data,
+          });
           gen.chunks.push(customJsonChunk);
           emitter.emit("chunk", customJsonChunk);
         }
