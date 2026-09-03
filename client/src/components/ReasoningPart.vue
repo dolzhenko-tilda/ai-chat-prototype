@@ -1,10 +1,20 @@
 <script setup lang="ts">
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
+import { formatDurationMs } from "../utils/dateFormat";
 
 const props = defineProps<{
   text: string;
   state?: "streaming" | "done";
+  /** How long the model thought, in ms (see `MessageItem.vue`'s
+   * `reasoningDurationMs`). Only available once the reasoning part is
+   * `"done"` - measured server-side, since neither OpenAI's nor
+   * Anthropic's API reports this itself. */
+  durationMs?: number;
 }>();
+
+const thoughtLabel = computed(() =>
+  props.durationMs !== undefined ? `Thought for ${formatDurationMs(props.durationMs)}` : null
+);
 
 // Collapsed by default once done, expanded automatically while streaming so
 // the user can watch the model "think".
@@ -26,6 +36,7 @@ watch(
     <summary>
       Reasoning
       <span v-if="state === 'streaming'" class="reasoning-part__badge">thinking…</span>
+      <span v-else-if="thoughtLabel" class="reasoning-part__badge">{{ thoughtLabel }}</span>
     </summary>
     <p class="reasoning-part__text">{{ text }}</p>
   </details>

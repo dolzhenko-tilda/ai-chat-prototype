@@ -25,3 +25,13 @@ export function formatTime(iso: string): string {
     return iso;
   }
 }
+
+/** "23s" / "3m 25s" for a duration in milliseconds - used to render how long
+ * a reasoning block took (see `ReasoningPart.vue`). Rounds down to whole
+ * seconds and always shows at least "0s". */
+export function formatDurationMs(durationMs: number): string {
+  const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
+}

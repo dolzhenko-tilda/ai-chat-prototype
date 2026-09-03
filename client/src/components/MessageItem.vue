@@ -66,6 +66,18 @@ function toolNameFor(part: AppUIMessage["parts"][number]): string {
   return isToolUIPart(part) || isDynamicToolUIPart(part) ? getToolOrDynamicToolName(part) : "";
 }
 
+/** How long the model "thought" for this reasoning part, in milliseconds.
+ * Neither OpenAI's nor Anthropic's API reports this - it's measured
+ * server-side (see `generationService.ts`) and threaded through via
+ * `providerMetadata.app.durationMs`, ai-sdk's official passthrough
+ * extension point for reasoning parts/chunks. Present as soon as the part's
+ * `reasoning-end` chunk arrives (live) and once persisted to history. */
+function reasoningDurationMs(part: AppUIMessage["parts"][number]): number | undefined {
+  if (!isReasoningUIPart(part)) return undefined;
+  const durationMs = part.providerMetadata?.app?.durationMs;
+  return typeof durationMs === "number" ? durationMs : undefined;
+}
+
 /** Mock sources are now cited by the model itself as regular inline markdown
  * links (`[title](url "source:title")`) inside its text - see the system
  * prompt built in `generationService.ts`'s `buildSystemPrompt` - so `TextPart`
@@ -91,6 +103,7 @@ function toolNameFor(part: AppUIMessage["parts"][number]): string {
           v-else-if="isReasoningUIPart(part)"
           :text="part.text"
           :state="isStreamingThisMessage ? part.state : 'done'"
+          :duration-ms="reasoningDurationMs(part)"
         />
         <ToolPart
           v-else-if="isToolOrDynamicPart(part)"

@@ -195,16 +195,38 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
     { type: "data-custom-json" }
   >[] = [];
 
-  /** Appends `data-error`/`data-custom-json` parts (if any were seen) to
-   * whatever ai-sdk's own state builder produced. Necessary because these
-   * chunks are emitted manually onto the raw stream (see the `for await`
-   * loop below) and never passed through `toUIMessageStream`'s internal
-   * state builder, so they're missing from `onEnd`'s
-   * `responseMessage.parts` - without this, they'd be visible in the live
-   * stream but vanish once the message is persisted and reloaded from
-   * history. */
+  /** Wall-clock start time (`Date.now()`) of each still-open reasoning part,
+   * keyed by its id - used to compute how long the model "thought" once its
+   * `reasoning-end` chunk arrives (neither OpenAI's nor Anthropic's API
+   * reports this, so it's measured here). */
+  const reasoningStartedAt = new Map<string, number>();
+  /** Computed reasoning durations (ms), keyed by reasoning part id, for
+   * parts that have already finished. Applied to the persisted parts in
+   * `finalizeParts` (see below) in addition to being attached live to the
+   * outgoing `reasoning-end` chunk. */
+  const reasoningDurationsMs = new Map<string, number>();
+
+  /** Appends `data-error`/`data-custom-json` parts (if any were seen), and
+   * reasoning durations, to whatever ai-sdk's own state builder produced.
+   * Necessary because `data-error`/`data-custom-json` chunks are emitted
+   * manually onto the raw stream (see the `for await` loop below) and never
+   * passed through `toUIMessageStream`'s internal state builder, so they're
+   * missing from `onEnd`'s `responseMessage.parts` - without this, they'd
+   * be visible in the live stream but vanish once the message is persisted
+   * and reloaded from history. Reasoning durations have the same problem:
+   * `onEnd` builds `responseMessage` from the original (unmodified)
+   * `result.stream` chunks, so the `providerMetadata.app.durationMs` we
+   * attach to the outgoing `reasoning-end` chunk below never reaches it. */
   function finalizeParts(parts: AppUIMessage["parts"]): AppUIMessage["parts"] {
-    let result = parts;
+    let result = parts.map((part) => {
+      if (part.type !== "reasoning" || !part.id) return part;
+      const durationMs = reasoningDurationsMs.get(part.id);
+      if (durationMs === undefined) return part;
+      return {
+        ...part,
+        providerMetadata: { ...part.providerMetadata, app: { durationMs } },
+      };
+    });
     for (const part of customJsonParts) {
       if (
         !result.some((p) => p.type === "data-custom-json" && p.id === part.id)
@@ -291,8 +313,31 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
           gen.chunks.push(customJsonChunk);
           emitter.emit("chunk", customJsonChunk);
         }
-        gen.chunks.push(chunk);
-        emitter.emit("chunk", chunk);
+        // Neither OpenAI's nor Anthropic's API reports how long the model
+        // spent "thinking", so it's measured here from the wall-clock gap
+        // between a reasoning part's `-start` and `-end` chunks, then
+        // attached as `providerMetadata.app.durationMs` - the ai-sdk's
+        // official passthrough extension point for both reasoning parts and
+        // reasoning-* chunks (see `ReasoningPart.vue` on the client, which
+        // reads it back out to render "Thought for Xs"/"Xm Ys").
+        let outgoingChunk = chunk;
+        if (chunk.type === "reasoning-start") {
+          reasoningStartedAt.set(chunk.id, Date.now());
+        } else if (chunk.type === "reasoning-end") {
+          const startedAt = reasoningStartedAt.get(chunk.id);
+          if (startedAt !== undefined) {
+            reasoningStartedAt.delete(chunk.id);
+            const durationMs = Date.now() - startedAt;
+            reasoningDurationsMs.set(chunk.id, durationMs);
+            outgoingChunk = {
+              ...chunk,
+              providerMetadata: { ...chunk.providerMetadata, app: { durationMs } },
+            };
+          }
+        }
+
+        gen.chunks.push(outgoingChunk);
+        emitter.emit("chunk", outgoingChunk);
         generationStateRepository.appendChunk(chatId, gen.chunks);
       }
 
