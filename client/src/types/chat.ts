@@ -51,6 +51,12 @@ export type AppUIMessageMetadata = {
   rateInfo?: RateInfo;
   /** ISO timestamp the message was created at (used to render its time and to group messages by day). */
   createdAt?: string;
+  /** The chat this message belongs to. Every message has one (mirroring
+   * `status`, it's required within the metadata shape even though the
+   * top-level `metadata` field itself can briefly be absent client-side,
+   * before the first streamed chunk populates it - see
+   * `AppUIMessage["metadata"]`/ai-sdk's `createStreamingUIMessageState`). */
+  chatId: string;
 };
 
 export type AppUIMessage = UIMessage<

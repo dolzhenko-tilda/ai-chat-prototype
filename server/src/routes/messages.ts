@@ -74,7 +74,12 @@ function toUIMessage(row: MessageRow): AppUIMessage {
     id: row.id,
     role: row.role,
     parts: row.parts,
-    metadata: { status: row.status, rateInfo, createdAt: new Date(row.createdAt).toISOString() },
+    metadata: {
+      status: row.status,
+      rateInfo,
+      createdAt: new Date(row.createdAt).toISOString(),
+      chatId: row.chatId,
+    },
   };
 }
 

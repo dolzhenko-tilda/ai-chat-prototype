@@ -265,6 +265,14 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
         tools,
         originalMessages: conversation,
         generateMessageId: () => assistantMessageId,
+        // Attaches metadata to the very first (`start`) chunk so it's merged
+        // directly into that chunk (ai-sdk only emits a separate
+        // `message-metadata` chunk for non-start/finish parts) - the client
+        // therefore has `chatId` available from the first chunk of the
+        // stream, before any text/tool parts arrive. `status: "streaming"`
+        // mirrors the placeholder row just persisted above.
+        messageMetadata: ({ part }) =>
+          part.type === "start" ? { chatId, status: "streaming" } : undefined,
         onError: (error) =>
           error instanceof Error ? error.message : "An error occurred.",
         onEnd: ({ responseMessage, outcome }) => {
