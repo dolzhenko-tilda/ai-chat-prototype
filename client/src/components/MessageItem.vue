@@ -7,11 +7,14 @@ import ReasoningPart from "./ReasoningPart.vue";
 import ToolPart from "./ToolPart.vue";
 import ErrorPart from "./ErrorPart.vue";
 import CustomJsonPart from "./CustomJsonPart.vue";
+import { formatTime } from "../utils/dateFormat";
 
 const props = defineProps<{
   message: AppUIMessage;
   /** Whether this message's assistant response is the one currently streaming. */
   isStreamingThisMessage: boolean;
+  /** ISO timestamp to display for this message (resolved by `MessageList.vue`, falling back to "now" if the message isn't persisted with a `createdAt` yet). */
+  createdAt: string;
 }>();
 
 const emit = defineEmits<{
@@ -24,6 +27,8 @@ const emit = defineEmits<{
 
 const isUser = computed(() => props.message.role === "user");
 const isAssistant = computed(() => props.message.role === "assistant");
+
+const formattedTime = computed(() => formatTime(props.createdAt));
 
 const currentRate = computed(() => props.message.metadata?.rateInfo?.rate);
 
@@ -70,7 +75,10 @@ function toolNameFor(part: AppUIMessage["parts"][number]): string {
 
 <template>
   <div class="message" :class="[isUser ? 'message--user' : 'message--assistant']">
-    <div class="message__role">{{ isUser ? "You" : "Assistant" }}</div>
+    <div class="message__role">
+      {{ isUser ? "You" : "Assistant" }}
+      <span class="message__time">{{ formattedTime }}</span>
+    </div>
 
     <div class="message__parts">
       <template v-for="(part, idx) in message.parts" :key="idx">
@@ -180,9 +188,6 @@ function toolNameFor(part: AppUIMessage["parts"][number]): string {
   border-radius: 12px;
   max-width: 80%;
 }
-.message:first-child {
-  margin-top: auto;
-}
 .message--user {
   align-self: flex-end;
   background: var(--accent-bg);
@@ -192,11 +197,20 @@ function toolNameFor(part: AppUIMessage["parts"][number]): string {
   background: var(--surface-1);
 }
 .message__role {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
   font-size: 0.75rem;
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.03em;
+}
+.message__time {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
 }
 .message__parts {
   display: flex;

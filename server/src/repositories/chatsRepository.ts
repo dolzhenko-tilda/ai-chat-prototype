@@ -14,7 +14,7 @@ const getChatStmt = db.prepare(
   `SELECT id, name, created_at as createdAt, updated_at as updatedAt FROM chats WHERE id = ?`
 );
 const touchChatStmt = db.prepare(`UPDATE chats SET updated_at = ? WHERE id = ?`);
-const renameChatStmt = db.prepare(`UPDATE chats SET name = @name, updated_at = @updatedAt WHERE id = @id`);
+const renameChatStmt = db.prepare(`UPDATE chats SET name = @name WHERE id = @id`);
 const deleteChatStmt = db.prepare(`DELETE FROM chats WHERE id = ?`);
 const getLastChatStmt = db.prepare(
   `SELECT id, name, created_at as createdAt, updated_at as updatedAt FROM chats ORDER BY updated_at DESC LIMIT 1`
@@ -51,16 +51,22 @@ export const chatsRepository = {
     touchChatStmt.run(Date.now(), chatId);
   },
 
-  /** Explicit rename (see `POST /api/v1/chats/rename`) - also bumps `updated_at`. */
+  /**
+   * Explicit rename (see `POST /api/v1/chats/rename`). Deliberately does
+   * *not* touch `updated_at`: that column (and the `updatedAt` surfaced to
+   * the client) tracks the chat's last message activity, used to sort
+   * `GET /api/v1/chats/list` and to display "last modified" - renaming
+   * isn't activity and shouldn't reorder or re-date the chat.
+   */
   rename(chatId: string, name: string) {
-    renameChatStmt.run({ id: chatId, name, updatedAt: Date.now() });
+    renameChatStmt.run({ id: chatId, name });
   },
 
   /** Auto-titles a still-unnamed chat (e.g. from its first user message); a no-op if already named. */
   setNameIfUnset(chatId: string, name: string) {
     const chat = this.get(chatId);
     if (chat && !chat.name) {
-      renameChatStmt.run({ id: chatId, name, updatedAt: chat.updatedAt });
+      renameChatStmt.run({ id: chatId, name });
     }
   },
 

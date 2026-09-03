@@ -55,6 +55,8 @@ export type AppUIMessageMetadata = {
   status: MessageStatus;
   /** Present only once the (assistant) message has been rated. */
   rateInfo?: RateInfo;
+  /** ISO timestamp the message was created at (used to render its time and to group messages by day). */
+  createdAt?: string;
 };
 
 /** The concrete UIMessage shape used across the whole server (matches the client). */

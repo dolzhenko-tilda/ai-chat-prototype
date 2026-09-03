@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import { api } from "../services/api";
 import type { Chat } from "../types/chat";
+import { formatDayLabel, formatTime, startOfDay } from "../utils/dateFormat";
 
 const props = defineProps<{
   /** Highlights the chat that's currently open in the main window. */
@@ -71,32 +72,6 @@ async function onDelete(chat: Chat) {
   }
 }
 
-function pad(n: number): string {
-  return String(n).padStart(2, "0");
-}
-
-/** Midnight of `date`'s calendar day, in local time - used both to group chats by day and to compare against "today"/"yesterday". */
-function startOfDay(date: Date): Date {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
-}
-
-function formatGroupLabel(day: Date): string {
-  const today = startOfDay(new Date());
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-  if (day.getTime() === today.getTime()) return "Today";
-  if (day.getTime() === yesterday.getTime()) return "Yesterday";
-  return `${pad(day.getDate())}.${pad(day.getMonth() + 1)}.${day.getFullYear()}`;
-}
-
-function formatTime(iso: string): string {
-  try {
-    return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-  } catch {
-    return iso;
-  }
-}
-
 /**
  * Buckets `chats` (already sorted newest-first by the server) into
  * day-based sections with a "Today" / "Yesterday" / "DD.MM.YYYY" header,
@@ -111,7 +86,7 @@ const groups = computed(() => {
     const key = day.toISOString();
     let group = result[result.length - 1];
     if (!group || group.key !== key) {
-      group = { key, label: formatGroupLabel(day), chats: [] };
+      group = { key, label: formatDayLabel(day), chats: [] };
       result.push(group);
     }
     group.chats.push(chat);

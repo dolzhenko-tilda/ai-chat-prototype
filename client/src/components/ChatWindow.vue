@@ -34,7 +34,10 @@ async function onSend(text: string) {
   // Guards against the brief window before `useChatId`'s init/auth call
   // resolves (see the "Connecting…" notice below).
   if (!chatId.value) return;
-  await chat.sendMessage({ text });
+  // Stamp the optimistic local message with its creation time right away, so
+  // it doesn't have to wait for a history reload to show/group correctly -
+  // the server persists the same message with its own `createdAt` anyway.
+  await chat.sendMessage({ text, metadata: { status: "complete", createdAt: new Date().toISOString() } });
 }
 
 async function stopActiveGeneration() {
@@ -80,7 +83,9 @@ async function onRate(messageId: string, rate: Rate) {
   // Same reference-swap pattern as `onDelete`: assign a new array so the
   // `messages` computed (and MessageList's prop-change watcher) picks it up.
   chat.messages.value = chat.messages.value.map((m) =>
-    m.id === messageId ? { ...m, metadata: { status: m.metadata?.status ?? "complete", rateInfo } } : m
+    m.id === messageId
+      ? { ...m, metadata: { status: m.metadata?.status ?? "complete", createdAt: m.metadata?.createdAt, rateInfo } }
+      : m
   );
 }
 
