@@ -68,10 +68,79 @@ export const logToConsole = tool({
   }),
 });
 
+/**
+ * Static catalog of images the assistant is allowed to embed in its
+ * markdown responses (as `![alt](url)`). In a real system this could query
+ * a media library or search API; here it's a fixed demo set.
+ */
+const IMAGE_LIBRARY = [
+  {
+    url: "https://static.tildacdn.com/2c5f76e1-d544-43f6-bc1c-4058c8ce82f0/OnRKhvlFQ2uJNSx5O3cc_DSC00560.jpg",
+    description: "Photo of a scenic outdoor landscape.",
+  },
+  {
+    url: "https://static.tildacdn.com/tild3039-3432-4333-b966-656536396165/photo1413920346627a4.jpeg",
+    description: "Photo of people at an event or gathering.",
+  },
+  {
+    url: "https://static.tildacdn.com/tild3262-6163-4439-b462-623538666334/photo142198652753788.jpeg",
+    description: "Photo depicting a lifestyle or everyday scene.",
+  },
+];
+
+/**
+ * Server-side tool: lets the model discover available image URLs (with
+ * descriptions) so it can embed them in its markdown reply using
+ * `![description](url)` syntax.
+ */
+export const getImages = tool({
+  description:
+    "Returns a list of available image URLs with descriptions. Use this when the user wants an image in the response, then embed the chosen image(s) in your markdown reply using ![description](url).",
+  inputSchema: z.object({}),
+  execute: async () => ({ images: IMAGE_LIBRARY }),
+});
+
+/**
+ * Static catalog of videos (YouTube embed URLs) the assistant is allowed to
+ * embed in its markdown responses. YouTube's oEmbed API can supply a video's
+ * real title dynamically (fetched client-side, see `TextPart.vue`), but it
+ * has no "description" field, so descriptions here are authored by hand.
+ */
+const VIDEO_LIBRARY = [
+  {
+    url: "https://www.youtube.com/embed/XEfDYMngJeE?rel=0&fmt=18&html5=1&showinfo=0",
+    description:
+      "Relaxing instrumental music paired with scenic Norwegian nature footage - good for background listening or focus.",
+  },
+  {
+    url: "https://www.youtube.com/embed/1dy5wKtJxEY?rel=0&fmt=18&html5=1&showinfo=0",
+    description: "A first-person running tour through the streets and landmarks of San Francisco.",
+  },
+];
+
+/**
+ * Server-side tool: lets the model discover available video URLs (with
+ * descriptions) so it can embed them in its markdown reply. There's no
+ * native markdown syntax for video, so - mirroring how source citations
+ * reuse a markdown link's `title` attribute (see `generationService.ts`'s
+ * `buildSystemPrompt`) - videos are embedded as a markdown link whose title
+ * is prefixed with "video:", e.g. `[Video](<url> "video:<description>")`.
+ * The client detects that exact prefix and swaps the link for a real
+ * embedded player (see `TextPart.vue`).
+ */
+export const getVideos = tool({
+  description:
+    'Returns a list of available video URLs (YouTube embeds) with descriptions. Use this when the user wants a video in the response, then embed the chosen video(s) in your markdown reply using a markdown link in exactly this format: [Video](<url> "video:<description>"). Only use urls and descriptions from this list verbatim - never invent one. Example: [Video](https://www.youtube.com/embed/XEfDYMngJeE?rel=0&fmt=18&html5=1&showinfo=0 "video:Relaxing nature music").',
+  inputSchema: z.object({}),
+  execute: async () => ({ videos: VIDEO_LIBRARY }),
+});
+
 export const tools = {
   calculate,
   getCurrentTime,
   logToConsole,
+  getImages,
+  getVideos,
 };
 
 /** Tools that require explicit user approval when tool-approval mode is enabled. */

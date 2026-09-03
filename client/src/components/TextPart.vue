@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
+import { YOUTUBE_EMBED_URL_PATTERN, getYoutubeVideoId, useYoutubeTitle } from "../utils/youtube";
 
 const props = defineProps<{
   text: string;
@@ -33,6 +34,64 @@ function renderMarkdown(source: string): string {
   for (const link of document.querySelectorAll('a[title^="source:"]')) {
     link.setAttribute("target", "_blank");
     link.setAttribute("rel", "noopener noreferrer");
+  }
+  // Images the model embeds via `![description](url)` get wrapped in a
+  // figure with the description shown as a caption underneath, instead of
+  // relying on the (invisible unless hovered) native `alt`/`title` text.
+  for (const img of document.querySelectorAll("img")) {
+    const figure = document.createElement("figure");
+    figure.className = "text-part__image";
+    img.replaceWith(figure);
+    figure.appendChild(img);
+    if (img.alt) {
+      const caption = document.createElement("figcaption");
+      caption.className = "text-part__image-caption";
+      caption.textContent = img.alt;
+      figure.appendChild(caption);
+    }
+  }
+  // Videos the model embeds via `[Video](url "video:description")` (there's
+  // no native markdown video syntax - see `llm.ts`'s `getVideos`) get turned
+  // into a real embedded player. The video's title isn't known to the model,
+  // so it's fetched live from YouTube's oEmbed API (`useYoutubeTitle`); the
+  // description came from the tool call and is rendered as a caption below.
+  for (const link of document.querySelectorAll('a[title^="video:"]')) {
+    const url = link.getAttribute("href") ?? "";
+    const description = link.getAttribute("title")!.slice("video:".length);
+    // Only ever embed an `<iframe>` for a URL matching YouTube's own embed
+    // path - guards against rendering an arbitrary/hallucinated URL as a
+    // live iframe. Anything else falls back to a plain link.
+    if (!YOUTUBE_EMBED_URL_PATTERN.test(url)) continue;
+    const videoId = getYoutubeVideoId(url);
+    const title = (videoId && useYoutubeTitle(videoId)) || "YouTube video";
+
+    const figure = document.createElement("figure");
+    figure.className = "text-part__video";
+
+    const frame = document.createElement("div");
+    frame.className = "text-part__video-frame";
+    const iframe = document.createElement("iframe");
+    iframe.src = url;
+    iframe.title = title;
+    iframe.loading = "lazy";
+    iframe.allow =
+      "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share";
+    iframe.allowFullscreen = true;
+    frame.appendChild(iframe);
+    figure.appendChild(frame);
+
+    const caption = document.createElement("figcaption");
+    caption.className = "text-part__video-caption";
+    const titleEl = document.createElement("div");
+    titleEl.className = "text-part__video-title";
+    titleEl.textContent = title;
+    const descriptionEl = document.createElement("div");
+    descriptionEl.className = "text-part__video-description";
+    descriptionEl.textContent = description;
+    caption.append(titleEl, descriptionEl);
+    figure.appendChild(caption);
+
+    link.replaceWith(figure);
   }
   return document.body.innerHTML;
 }
@@ -166,8 +225,63 @@ function renderMarkdown(source: string): string {
   border-top: 1px solid var(--border);
   margin: 0.75em 0;
 }
-.text-part__markdown :deep(img) {
+.text-part__markdown :deep(.text-part__image) {
+  margin: 0.5em 0;
+  padding: 0.5rem;
+  border-radius: 10px;
+  /* Lighter than the surrounding message bubble background in both color
+   * schemes (surface-1), regardless of whether "lighter" means towards
+   * white or towards the next surface step in dark mode. */
+  background: color-mix(in srgb, var(--surface-1), white 12%);
+  display: inline-flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.35rem;
   max-width: 100%;
+}
+.text-part__markdown :deep(.text-part__image img) {
+  max-width: 100%;
+  display: block;
   border-radius: 6px;
+}
+.text-part__markdown :deep(.text-part__image-caption) {
+  font-style: italic;
+  font-size: 0.75em;
+  color: var(--text-muted);
+}
+.text-part__markdown :deep(.text-part__video) {
+  margin: 0.5em 0;
+  padding: 0.5rem;
+  border-radius: 10px;
+  /* Same "lighter than the message bubble" treatment as image captions. */
+  background: color-mix(in srgb, var(--surface-1), white 12%);
+}
+.text-part__markdown :deep(.text-part__video-frame) {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #000;
+}
+.text-part__markdown :deep(.text-part__video-frame iframe) {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+}
+.text-part__markdown :deep(.text-part__video-caption) {
+  margin-top: 0.35rem;
+}
+.text-part__markdown :deep(.text-part__video-title) {
+  font-size: 0.85em;
+  font-weight: 600;
+}
+.text-part__markdown :deep(.text-part__video-description) {
+  font-style: italic;
+  font-size: 0.75em;
+  color: var(--text-muted);
+  margin-top: 0.1rem;
 }
 </style>

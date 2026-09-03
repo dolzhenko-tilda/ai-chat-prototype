@@ -18,6 +18,14 @@ export type AppUITools = {
     input: { message: string };
     output: { logged: true };
   };
+  getImages: {
+    input: Record<string, never>;
+    output: { images: Array<{ url: string; description: string }> };
+  };
+  getVideos: {
+    input: Record<string, never>;
+    output: { videos: Array<{ url: string; description: string }> };
+  };
 };
 
 export type CustomJsonPartMessage = {
