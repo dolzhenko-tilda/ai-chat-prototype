@@ -1,5 +1,5 @@
 import { db } from "../db/index.js";
-import type { AppUIMessage, MessageRow, MessageStatus } from "../types.js";
+import type { AppUIMessage, MessageRow, MessageStatus, Rate } from "../types.js";
 
 interface RawRow {
   id: string;
@@ -9,6 +9,8 @@ interface RawRow {
   status: MessageStatus;
   seq: number;
   created_at: number;
+  rate: Rate | null;
+  rated_at: number | null;
 }
 
 function toMessageRow(row: RawRow): MessageRow {
@@ -20,6 +22,8 @@ function toMessageRow(row: RawRow): MessageRow {
     status: row.status,
     seq: row.seq,
     createdAt: row.created_at,
+    rate: row.rate ?? undefined,
+    ratedAt: row.rated_at ?? undefined,
   };
 }
 
@@ -30,11 +34,12 @@ const insertStmt = db.prepare(
 const updateStmt = db.prepare(
   `UPDATE messages SET parts = @parts, status = @status WHERE id = @id`
 );
+const rateStmt = db.prepare(`UPDATE messages SET rate = @rate, rated_at = @ratedAt WHERE id = @id`);
 const listByChatStmt = db.prepare(
-  `SELECT id, chat_id, role, parts, status, seq, created_at FROM messages WHERE chat_id = ? ORDER BY seq ASC`
+  `SELECT id, chat_id, role, parts, status, seq, created_at, rate, rated_at FROM messages WHERE chat_id = ? ORDER BY seq ASC`
 );
 const getByIdStmt = db.prepare(
-  `SELECT id, chat_id, role, parts, status, seq, created_at FROM messages WHERE id = ?`
+  `SELECT id, chat_id, role, parts, status, seq, created_at, rate, rated_at FROM messages WHERE id = ?`
 );
 const deleteStmt = db.prepare(`DELETE FROM messages WHERE id = ?`);
 const maxSeqStmt = db.prepare(`SELECT COALESCE(MAX(seq), -1) as maxSeq FROM messages WHERE chat_id = ?`);
@@ -70,6 +75,11 @@ export const messagesRepository = {
 
   update(id: string, parts: AppUIMessage["parts"], status: MessageStatus) {
     updateStmt.run({ id, parts: JSON.stringify(parts), status });
+  },
+
+  /** Sets (or overwrites) a message's rating (see `POST /api/v1/messages/rate`). */
+  rate(id: string, rate: Rate, ratedAt: number) {
+    rateStmt.run({ id, rate, ratedAt });
   },
 
   delete(messageId: string) {

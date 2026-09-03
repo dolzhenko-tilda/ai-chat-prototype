@@ -16,9 +16,16 @@ import { endSse, startSse, writeChunk } from "../utils/sse.js";
 import { requireToken } from "../utils/auth.js";
 import { sendError, sendResult } from "../utils/response.js";
 import { REASONING_EFFORT_LEVELS } from "../types.js";
-import type { AppUIMessage, MessageRow } from "../types.js";
+import type {
+  AppUIMessage,
+  MessageRow,
+  Rate,
+  RateInfo,
+  RateResult,
+} from "../types.js";
 
 const reasoningEffortSchema = z.enum(REASONING_EFFORT_LEVELS).optional();
+const rateSchema = z.enum(["like", "dislike"]) satisfies z.ZodType<Rate>;
 
 /**
  * `requireApproval`/`reasoningEffort` aren't part of `ai-chat-contracts.ts`
@@ -50,16 +57,28 @@ export const messagesRouter = Router();
 messagesRouter.use(requireToken);
 
 function toUIMessage(row: MessageRow): AppUIMessage {
-  return { id: row.id, role: row.role, parts: row.parts, metadata: { status: row.status } };
+  const rateInfo: RateInfo | undefined =
+    row.rate && row.ratedAt !== undefined
+      ? { rate: row.rate, ratedAt: new Date(row.ratedAt).toISOString() }
+      : undefined;
+  return {
+    id: row.id,
+    role: row.role,
+    parts: row.parts,
+    metadata: { status: row.status, rateInfo },
+  };
 }
 
 /** Streams a just-started generation's chunks to `res` as SSE, until it finishes. */
-function streamGenerationToResponse(res: Response, gen: ReturnType<typeof runGeneration>) {
+function streamGenerationToResponse(
+  res: Response,
+  gen: ReturnType<typeof runGeneration>,
+) {
   startSse(res);
   const unsubscribe = subscribeToGeneration(
     gen,
     (chunk) => writeChunk(res, chunk),
-    () => endSse(res)
+    () => endSse(res),
   );
   // Note: `req` (IncomingMessage) fires "close" as soon as the request body has
   // been fully read, which happens almost immediately for small JSON bodies -
@@ -219,7 +238,8 @@ messagesRouter.post("/continue", (req, res) => {
     sendError(res, 400, "Invalid body", parsed.error.issues[0]?.message);
     return;
   }
-  const { chatId, messageId, toolPart, requireApproval, reasoningEffort } = parsed.data;
+  const { chatId, messageId, toolPart, requireApproval, reasoningEffort } =
+    parsed.data;
 
   const chat = chatsRepository.get(chatId);
   if (!chat) {
@@ -240,12 +260,16 @@ messagesRouter.post("/continue", (req, res) => {
 
   const storedParts = all[idx].parts as AppUIMessage["parts"];
   const partIdx = storedParts.findIndex(
-    (p) => "toolCallId" in p && (p as { toolCallId: string }).toolCallId === toolPart.toolCallId
+    (p) =>
+      "toolCallId" in p &&
+      (p as { toolCallId: string }).toolCallId === toolPart.toolCallId,
   );
   const mergedParts =
     partIdx === -1
       ? [...storedParts, toolPart as AppUIMessage["parts"][number]]
-      : storedParts.map((p, i) => (i === partIdx ? (toolPart as AppUIMessage["parts"][number]) : p));
+      : storedParts.map((p, i) =>
+          i === partIdx ? (toolPart as AppUIMessage["parts"][number]) : p,
+        );
 
   const history = all.slice(0, idx).map(toUIMessage);
   const updatedAssistantMessage: AppUIMessage = {
@@ -288,6 +312,40 @@ messagesRouter.post("/delete", (req, res) => {
   discardGenerationIfTargeting(chatId, messageId);
   messagesRepository.delete(messageId);
   sendResult(res, {});
+});
+
+/** POST /api/v1/messages/rate - see `RateAnswerRequest`/`RateAnswerResponse`. */
+messagesRouter.post("/rate", (req, res) => {
+  const bodySchema = z.object({
+    chatId: z.string().min(1),
+    messageId: z.string().min(1),
+    rate: rateSchema,
+  });
+  const parsed = bodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    sendError(res, 400, "Invalid body", parsed.error.issues[0]?.message);
+    return;
+  }
+  const { messageId, rate } = parsed.data;
+
+  const existing = messagesRepository.getById(messageId);
+  if (!existing) {
+    sendError(res, 404, `Message ${messageId} not found`);
+    return;
+  }
+  if (existing.role !== "assistant") {
+    sendError(res, 400, "Only assistant messages can be rated");
+    return;
+  }
+
+  const ratedAt = Date.now();
+  messagesRepository.rate(messageId, rate, ratedAt);
+  const rateResult: RateResult = {
+    messageId,
+    rate,
+    ratedAt: new Date(ratedAt).toISOString(),
+  };
+  sendResult(res, rateResult);
 });
 
 /** POST /api/v1/messages/cancel - see `CancelGenerationRequest`/`CancelGenerationResponse`. */
@@ -338,7 +396,7 @@ messagesRouter.get("/resume", (req, res) => {
   const unsubscribe = subscribeToGeneration(
     gen,
     (chunk) => writeChunk(res, chunk),
-    () => endSse(res)
+    () => endSse(res),
   );
   res.on("close", unsubscribe);
 });

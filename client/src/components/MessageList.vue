@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
-import type { AppUIMessage, ChatStatus } from "../types/chat";
+import type { AppUIMessage, ChatStatus, Rate } from "../types/chat";
 import MessageItem from "./MessageItem.vue";
 
 const props = defineProps<{
@@ -13,6 +13,7 @@ const emit = defineEmits<{
   regenerate: [messageId: string];
   approve: [approvalId: string];
   deny: [approvalId: string];
+  rate: [messageId: string, rate: Rate];
 }>();
 
 const streamingMessageId = computed(() => {
@@ -71,6 +72,7 @@ watch(
       @regenerate="(id) => emit('regenerate', id)"
       @approve="(id) => emit('approve', id)"
       @deny="(id) => emit('deny', id)"
+      @rate="(id, rate) => emit('rate', id, rate)"
     />
   </div>
 </template>

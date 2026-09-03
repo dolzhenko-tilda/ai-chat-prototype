@@ -46,7 +46,6 @@ type Rate = "like" | "dislike";
 
 // Данные оценки
 type RateInfo = {
-  messageId: string;
   rate: Rate;
   ratedAt: string;
 };
@@ -274,7 +273,11 @@ type RateAnswerRequest = ClientRequest<{
   rate: Rate;
 }>;
 
-type RateAnswerResponse = ServerResponse<RateInfo>;
+type RateAnswerResponse = ServerResponse<
+  RateInfo & {
+    messageId: string;
+  }
+>;
 
 // ===================== 8. GET /api/v1/chats/list =====================
 // Получение списка всех чатов.

@@ -4,6 +4,7 @@ import { useChatId } from "../composables/useChatId";
 import { useAppChat } from "../composables/useAppChat";
 import { useChatSettings } from "../composables/useChatSettings";
 import { api } from "../services/api";
+import type { Rate } from "../types/chat";
 import MessageList from "./MessageList.vue";
 import ChatInput from "./ChatInput.vue";
 
@@ -71,6 +72,15 @@ async function onDeny(approvalId: string) {
   await chat.addToolApprovalResponse({ id: approvalId, approved: false });
 }
 
+async function onRate(messageId: string, rate: Rate) {
+  const {messageId: _, ...rateInfo} = await api.rateMessage(chatId.value, messageId, rate);
+  // Same reference-swap pattern as `onDelete`: assign a new array so the
+  // `messages` computed (and MessageList's prop-change watcher) picks it up.
+  chat.messages.value = chat.messages.value.map((m) =>
+    m.id === messageId ? { ...m, metadata: { status: m.metadata?.status ?? "complete", rateInfo } } : m
+  );
+}
+
 async function onNewChat() {
   // `@ai-sdk/vue`'s useChat recreates its internal chat instance when `id`
   // changes, but the `messages`/`status` refs it exposes are shared across
@@ -108,6 +118,7 @@ async function onNewChat() {
       @regenerate="onRegenerate"
       @approve="onApprove"
       @deny="onDeny"
+      @rate="onRate"
     />
 
     <ChatInput

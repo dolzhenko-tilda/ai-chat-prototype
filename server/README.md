@@ -34,7 +34,7 @@ npm run start   # node dist/index.js (после build)
 
 - **`tokens`** — `token`, `created_at`. Минтится `GET /api/v1/init` (см. ниже); MVP-у достаточно одного неявного пользователя, поэтому токен ни к чему не привязан — он лишь подтверждает, что клиент прошёл `/init`.
 - **`chats`** — `id`, `created_at`, `updated_at`. Строка создаётся implicitly при первом обращении к чату (первом `POST /messages/create`) — отдельного эндпоинта создания чата нет, как и допускает ТЗ.
-- **`messages`** — `id`, `chat_id`, `role`, `parts` (JSON-массив ai-sdk `UIMessage.parts`), `status` (`complete` | `streaming` | `aborted` | `error`), `seq` (порядок в чате), `created_at`. Полю `status` соответствует `message.metadata.status` в отдаваемом клиенту `UIMessage` — так фронт может показать бейдж "Stopped"/"Error" даже для сообщений, загруженных из истории.
+- **`messages`** — `id`, `chat_id`, `role`, `parts` (JSON-массив ai-sdk `UIMessage.parts`), `status` (`complete` | `streaming` | `aborted` | `error`), `seq` (порядок в чате), `created_at`, `rate`/`rated_at` (nullable — см. `POST /messages/rate`). Полю `status` соответствует `message.metadata.status`, а паре `rate`/`rated_at` — `message.metadata.rateInfo` в отдаваемом клиенту `UIMessage` — так фронт может показать бейдж "Stopped"/"Error" и подсветить оценку даже для сообщений, загруженных из истории.
 - **`generation_state`** — по одной строке на чат: `message_id` активной/последней генерации, `accumulated_chunks` (JSON-массив уже отправленных `UIMessageChunk`, нужен для resume), `is_active`, `abort_requested`.
 
 При старте сервер помечает все ещё «активные» на момент выключения генерации как `aborted` (см. `src/services/startup.ts`) — предыдущий процесс со `streamText` не переживает рестарт, поэтому такие генерации не могут быть продолжены, только корректно закрыты.
@@ -139,6 +139,20 @@ npm run start   # node dist/index.js (после build)
 
 - Если для чата есть активная генерация — сервер сразу шлёт уже накопленные чанки (`generation_state.accumulated_chunks`), а затем продолжает стримить новые чанки по мере их появления через тот же поток.
 - Если активной генерации нет — отвечает `204 No Content` без тела (клиент интерпретирует это как "нечего резюмировать"; контрактный тип `ReadableStream<MessageChunk> | null` не выразим как JSON-конверт, поэтому для `null`-случая используется HTTP-статус, а не `{success:false}`).
+
+### `POST /api/v1/messages/rate`
+
+Оценка ответа ассистента: лайк/дизлайк. Только сообщения с `role: "assistant"` можно оценивать (`400`, если `messageId` указывает на сообщение пользователя). Повторный вызов с другим значением `rate` перезаписывает предыдущую оценку.
+
+```json
+{ "token": "...", "chatId": "...", "messageId": "...", "rate": "like" }
+```
+
+```json
+{ "success": true, "result": { "messageId": "...", "rate": "like", "ratedAt": "2026-09-03T10:00:00.000Z" } }
+```
+
+Оценка хранится в колонках `rate`/`rated_at` таблицы `messages` и возвращается клиенту как `message.metadata.rateInfo` в `GET /messages/list` — так фронт может подсветить нажатую кнопку (👍/👎) даже для сообщений, загруженных из истории.
 
 ## Формат SSE (протокол стриминга)
 

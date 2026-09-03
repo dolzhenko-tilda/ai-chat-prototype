@@ -32,8 +32,23 @@ export type AppUIDataTypes = {
 
 export type MessageStatus = "complete" | "streaming" | "aborted" | "error";
 
+/** A user's rating of an assistant answer (see `POST /api/v1/messages/rate`). */
+export type Rate = "like" | "dislike";
+
+/** Rating data surfaced on a rated message's `metadata.rateInfo`. */
+export type RateInfo = {
+  rate: Rate;
+  ratedAt: string;
+};
+
+export type RateResult = RateInfo & {
+  messageId: string;
+};
+
 export type AppUIMessageMetadata = {
   status: MessageStatus;
+  /** Present only once the (assistant) message has been rated. */
+  rateInfo?: RateInfo;
 };
 
 export type AppUIMessage = UIMessage<

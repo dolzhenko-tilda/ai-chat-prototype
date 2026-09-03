@@ -23,7 +23,9 @@ CREATE TABLE IF NOT EXISTS messages (
   parts TEXT NOT NULL, -- JSON array of ai-sdk UIMessage parts
   status TEXT NOT NULL CHECK (status IN ('complete', 'streaming', 'aborted', 'error')),
   seq INTEGER NOT NULL, -- preserves message order within a chat
-  created_at INTEGER NOT NULL
+  created_at INTEGER NOT NULL,
+  rate TEXT CHECK (rate IN ('like', 'dislike')), -- NULL when unrated (see POST /api/v1/messages/rate)
+  rated_at INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_chat_seq ON messages (chat_id, seq);

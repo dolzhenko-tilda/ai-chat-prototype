@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { getToolOrDynamicToolName, isDynamicToolUIPart, isReasoningUIPart, isTextUIPart, isToolUIPart } from "ai";
-import type { AppUIMessage } from "../types/chat";
+import type { AppUIMessage, Rate } from "../types/chat";
 import TextPart from "./TextPart.vue";
 import ReasoningPart from "./ReasoningPart.vue";
 import ToolPart from "./ToolPart.vue";
@@ -19,10 +19,13 @@ const emit = defineEmits<{
   regenerate: [messageId: string];
   approve: [approvalId: string];
   deny: [approvalId: string];
+  rate: [messageId: string, rate: Rate];
 }>();
 
 const isUser = computed(() => props.message.role === "user");
 const isAssistant = computed(() => props.message.role === "assistant");
+
+const currentRate = computed(() => props.message.metadata?.rateInfo?.rate);
 
 const statusBadge = computed(() => {
   const status = props.message.metadata?.status;
@@ -30,6 +33,10 @@ const statusBadge = computed(() => {
   if (status === "error") return "Error";
   return null;
 });
+
+const isStreaming = computed(
+  () => props.message.metadata?.status === "streaming" || props.isStreamingThisMessage
+);
 
 const textContent = computed(() =>
   props.message.parts
@@ -95,7 +102,7 @@ function toolNameFor(part: AppUIMessage["parts"][number]): string {
       <span v-if="isStreamingThisMessage && message.parts.length === 0" class="message__typing">Thinking…</span>
     </div>
 
-    <div class="message__actions">
+    <div v-if="!isStreaming" class="message__actions">
       <span v-if="statusBadge" class="message__badge">{{ statusBadge }}</span>
       <button type="button" class="btn btn--ghost btn--icon" title="Copy" aria-label="Copy" @click="copyText">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
@@ -103,6 +110,34 @@ function toolNameFor(part: AppUIMessage["parts"][number]): string {
           <path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1" />
         </svg>
       </button>
+      <template v-if="isAssistant">
+        <button
+          type="button"
+          class="btn btn--ghost btn--icon btn--like"
+          :class="{ 'btn--active': currentRate === 'like' }"
+          title="Like"
+          aria-label="Like"
+          @click="emit('rate', message.id, 'like')"
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M7 10v12" />
+            <path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2a3.13 3.13 0 0 1 3 3.88Z" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          class="btn btn--ghost btn--icon btn--dislike"
+          :class="{ 'btn--active': currentRate === 'dislike' }"
+          title="Dislike"
+          aria-label="Dislike"
+          @click="emit('rate', message.id, 'dislike')"
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M17 14V2" />
+            <path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22a3.13 3.13 0 0 1-3-3.88Z" />
+          </svg>
+        </button>
+      </template>
       <button
         type="button"
         class="btn btn--ghost btn--icon"
@@ -192,5 +227,12 @@ function toolNameFor(part: AppUIMessage["parts"][number]): string {
   justify-content: center;
   padding: 0.3rem;
   line-height: 0;
+}
+.btn--active {
+  color: var(--accent);
+  background: var(--accent-bg);
+}
+.btn--dislike.btn--active {
+  color: var(--danger-text);
 }
 </style>

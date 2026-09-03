@@ -1,10 +1,12 @@
-import type { AppUIMessage } from "../types/chat";
+import type { AppUIMessage, Rate, RateInfo, RateResult } from "../types/chat";
 
 const baseUrl = import.meta.env.VITE_SERVER_URL ?? "http://localhost:3001";
 
 const TOKEN_STORAGE_KEY = "ai-chat-prototype:token";
 
-type ServerResponse<T> = { success: true; result: T } | { success: false; error?: string; errorCode?: string };
+type ServerResponse<T> =
+  | { success: true; result: T }
+  | { success: false; error?: string; errorCode?: string };
 
 /** Unwraps the `ServerResponse<T>` envelope from `ai-chat-contracts.ts`, throwing on `success: false`. */
 async function unwrap<T>(res: Response): Promise<T> {
@@ -43,7 +45,11 @@ export const api = {
     const token = this.getToken();
     const params = new URLSearchParams({ token: token ?? "", chatId });
     const res = await fetch(`${baseUrl}/api/v1/messages/list?${params}`);
-    const { messages } = await unwrap<{ chatId: string; messages: AppUIMessage[]; hasMore: boolean }>(res);
+    const { messages } = await unwrap<{
+      chatId: string;
+      messages: AppUIMessage[];
+      hasMore: boolean;
+    }>(res);
     return messages;
   },
 
@@ -66,6 +72,21 @@ export const api = {
     });
     await unwrap(res);
   },
+
+  /** `POST /api/v1/messages/rate` - see `RateAnswerRequest`/`RateAnswerResponse`. */
+  async rateMessage(
+    chatId: string,
+    messageId: string,
+    rate: Rate,
+  ): Promise<RateResult> {
+    const token = this.getToken();
+    const res = await fetch(`${baseUrl}/api/v1/messages/rate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, chatId, messageId, rate }),
+    });
+    return unwrap<RateResult>(res);
+  },
 };
 
 /**
@@ -74,7 +95,9 @@ export const api = {
  * as-is with no network round-trip; otherwise `init()` is called once and
  * its result is persisted.
  */
-export async function ensureAuth(chatIdStorageKey: string): Promise<{ chatId: string; token: string }> {
+export async function ensureAuth(
+  chatIdStorageKey: string,
+): Promise<{ chatId: string; token: string }> {
   const storedToken = api.getToken();
   const storedChatId = localStorage.getItem(chatIdStorageKey);
   if (storedToken && storedChatId) {
