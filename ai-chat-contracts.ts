@@ -18,14 +18,18 @@ type ClientRequest<T = {}> = T & {
   token: string;
 };
 
-type ServerResponse<T = undefined> = T extends undefined
-  ? {
-      success: boolean;
-    }
-  : {
-      success: boolean;
+type ServerErrorResponse = {
+  success: false;
+  error?: string;
+  errorCode?: string; // MODEL_NOT_RESPONDING
+};
+
+type ServerResponse<T = {}> =
+  | {
+      success: true;
       result: T;
-    };
+    }
+  | ServerErrorResponse;
 
 // ===================== Общие типы для сообщений =====================
 
@@ -36,27 +40,40 @@ type ToolStatus =
   | "input-available"
   | "output-available"
   | "output-error";
-type RateId = 1 | 2;
+type Rate = "like" | "dislike";
+
+// Данные оценки
+type RateInfo = {
+  messageId: string;
+  rate: Rate;
+  ratedAt: string;
+};
 
 /** Инструменты (tools), доступные ассистенту. */
 type Tools = {
   /** клиентский тул: спрашивает пользователя и получает ответ */
-  askUser: {
-    input: { question: string; answers: string[] };
-    output: { answer: string | null };
-  };
+  // askUser: {
+  //   input: { question: string; answers: string[] };
+  //   output: { answer: string | null };
+  // };
 };
 
 /** Кастомные data-parts, которые сервер может добавить в message.parts. */
 type CustomParts = {
-  source: { title: string; url: string };
-  checkList: { title: string; items: string[] };
-  image: { url: string; title?: string; description?: string };
-  video: { url: string; title?: string; description?: string };
+  // source: { title: string; url: string };
+  // checkList: { title: string; items: string[] };
+  // image: { url: string; title?: string; description?: string };
+  // video: { url: string; title?: string; description?: string };
 };
 
 type MessageMetadata = {
   status: MessageStatus;
+  createdAt: string;
+  rateInfo: RateInfo;
+};
+
+type UiMessageMetadata = {
+  context: { pageUrl: string };
 };
 
 /** Часть сообщения, описывающая вызов тула. */
@@ -132,18 +149,29 @@ type MessageChunk =
 
 // ===================== Общие типы для истории =====================
 
-type ChatStatus = "complete" | "streaming" | "waiting" | "aborted" | "error";
-
 type Chat = {
   id: string;
   name: string;
-  scope: string;
-  state: ChatStatus;
   updatedAt: string;
 };
 
-// ===================== 1. POST /api/v1/messages/list =====================
+// ===================== 1. GET /api/v1/init =====================
+// Получение временного токена, необходимого для отправки остальных запросов
+// Токен генерирует бэке, пока пользователь только один в MVP.
+// chatId генерируется на сервере, если чатов у токена нет. Если же чаты есть,
+// то возвращается id последнего чата
+
+type InitRequest = {};
+
+type InitResponse = ServerResponse<{
+  chatId: string;
+  token: string;
+}>;
+
+// ===================== 1. GET /api/v1/messages/list =====================
 // Полная история сообщений чата. Если чата ещё нет — возвращает пустой массив.
+// Возвращает список готовых сообщений, а если последнее сообщение ассистента еще в процессе генерации,
+// то оно возвращается с пустым parts и со статусом streaming
 
 type GetMessagesRequest = ClientRequest<{
   chatId: string;
@@ -158,27 +186,33 @@ type GetMessagesResponse = ServerResponse<{
 }>;
 
 // ===================== 2. POST /api/v1/messages/create =====================
-// Отправка нового сообщения пользователя или перегенерация ответа ассистента.
+// Отправка нового сообщения пользователя.
 // message - текст нового сообщения пользователя для отправки в чат.
-// messageId — id сообщения-ассистента, которое нужно перегенерировать.
 // Клиент не пересылает историю. Ответ — SSE-поток чанков ассистента.
 
-type CreateMessageRequest = ClientRequest<
-  | {
-      chatId: string;
-      message: string;
-    }
-  | {
-      chatId: string;
-      messageId: string;
-    }
->;
+type CreateMessageRequest = ClientRequest<{
+  chatId: string;
+  message: string;
+}>;
 
 /** Ответ — SSE-поток */
 type CreateMessageResponse = ReadableStream<MessageChunk>;
 
+// ===================== 2. POST /api/v1/messages/regenerate =====================
+// Перегенерация ответа ассистента.
+// messageId — id сообщения-ассистента, которое нужно перегенерировать.
+// Клиент не пересылает историю. Ответ — SSE-поток чанков ассистента.
+
+type RegenerateMessageRequest = ClientRequest<{
+  chatId: string;
+  messageId: string;
+}>;
+
+/** Ответ — SSE-поток */
+type RegenerateMessageResponse = ReadableStream<MessageChunk>;
+
 // ============= 4. POST /api/v1/messages/continue =============
-// Используется после выполнения клиентского тула (askUser) в браузере
+// Используется после выполнения клиентского тула (например, askUser) в браузере
 // флоу: клиент шлёт обновлённый tool-part.
 
 type ContinueMessageRequest = ClientRequest<{
@@ -212,15 +246,16 @@ type CancelGenerationResponse = ServerResponse<{
   cancelled: boolean;
 }>;
 
-// ===================== 7. POST /api/v1/messages/resume =====================
+// ===================== 7. GET /api/v1/messages/resume =====================
 // Подключение к незавершённой генерации (например, после reload страницы).
-// Если активной генерации нет — 204 No Content без тела (клиент трактует как null).
+// Выполняем запрос только, если при открытии чата и получения истории его сообщений
+// последнее сообщение ассистента в статусе streaming.
 
 type ResumeGenerationRequest = ClientRequest<{
   chatId: string;
 }>;
 
-/** ReadableStream чанков, если генерация активна; null при 204 No Content. */
+/** ReadableStream чанков */
 type ResumeGenerationResponse = ReadableStream<MessageChunk> | null;
 
 // ===================== 7. POST /api/v1/messages/rate =====================
@@ -229,16 +264,12 @@ type ResumeGenerationResponse = ReadableStream<MessageChunk> | null;
 type RateAnswerRequest = ClientRequest<{
   chatId: string;
   messageId: string;
-  rateId: RateId;
+  rate: Rate;
 }>;
 
-type RateAnswerResponse = ServerResponse<{
-  messageId: string;
-  rateId: RateId;
-  ratedAt: string;
-}>;
+type RateAnswerResponse = ServerResponse<RateInfo>;
 
-// ===================== 8. POST /api/v1/chats/list =====================
+// ===================== 8. GET /api/v1/chats/list =====================
 // Получение списка всех чатов.
 
 type GetChatsRequest = ClientRequest<{
