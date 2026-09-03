@@ -16,6 +16,16 @@ const paragraphs = computed(() => {
   return parts.length > 0 ? parts : [props.text];
 });
 
+interface SourceLink {
+  url: string;
+  title: string;
+}
+
+interface RenderedParagraph {
+  html: string;
+  sources: SourceLink[];
+}
+
 /** Renders a single paragraph's markdown to sanitized HTML. Each paragraph is
  * parsed independently (rather than the whole message at once) so it can
  * still be paired one-to-one with the streaming cursor, same as before
@@ -25,15 +35,22 @@ const paragraphs = computed(() => {
  * writes them inline as regular markdown links in the exact format
  * `[title](url "source:title")` (see the system prompt built in
  * `generationService.ts`'s `buildSystemPrompt`), which `marked` renders as
- * `<a href="url" title="source:title">title</a>` - styled below purely via
- * the `a[title^="source:"]` CSS selector. The only bit of post-processing
- * needed is making those citation links open in a new tab. */
-function renderMarkdown(source: string): string {
+ * `<a href="url" title="source:title">title</a>`. The `source:` prefix is
+ * only a marker for the client to recognize a citation link - it's stripped
+ * from the (user-visible-on-hover) `title` here, and a `text-part__source-link`
+ * class is added instead so both these inline links and the aggregated
+ * "Sources:" line below can share the same styling. */
+function renderMarkdown(source: string): RenderedParagraph {
   const sanitizedMarkdown = DOMPurify.sanitize(marked.parse(source, { async: false, breaks: true }));
   const document = new DOMParser().parseFromString(sanitizedMarkdown, "text/html");
+  const sources: SourceLink[] = [];
   for (const link of document.querySelectorAll('a[title^="source:"]')) {
+    const title = link.getAttribute("title")!.slice("source:".length);
+    link.setAttribute("title", title);
+    link.classList.add("text-part__source-link");
     link.setAttribute("target", "_blank");
     link.setAttribute("rel", "noopener noreferrer");
+    sources.push({ url: link.getAttribute("href") ?? "", title });
   }
   // Images the model embeds via `![description](url)` get wrapped in a
   // figure with the description shown as a caption underneath, instead of
@@ -93,16 +110,44 @@ function renderMarkdown(source: string): string {
 
     link.replaceWith(figure);
   }
-  return document.body.innerHTML;
+  return { html: document.body.innerHTML, sources };
 }
+
+const renderedParagraphs = computed(() => paragraphs.value.map(renderMarkdown));
+
+/** All source citations found across the whole message, deduplicated by
+ * url (first occurrence wins), additionally rendered as a "Sources: ..."
+ * line at the end of the text block, alongside the same links left inline. */
+const sources = computed<SourceLink[]>(() => {
+  const seen = new Map<string, SourceLink>();
+  for (const { sources: paragraphSources } of renderedParagraphs.value) {
+    for (const source of paragraphSources) {
+      if (source.url && !seen.has(source.url)) seen.set(source.url, source);
+    }
+  }
+  return [...seen.values()];
+});
 </script>
 
 <template>
   <div class="text-part" :class="{ 'text-part--streaming': isStreaming }">
-    <div v-for="(paragraph, i) in paragraphs" :key="i" class="text-part__paragraph">
+    <div v-for="(paragraph, i) in renderedParagraphs" :key="i" class="text-part__paragraph">
       <!-- eslint-disable-next-line vue/no-v-html -->
-      <div class="text-part__markdown" v-html="renderMarkdown(paragraph)"></div>
-      <span v-if="isStreaming && i === paragraphs.length - 1" class="cursor">▍</span>
+      <div class="text-part__markdown" v-html="paragraph.html"></div>
+      <span v-if="isStreaming && i === renderedParagraphs.length - 1" class="cursor">▍</span>
+    </div>
+    <div v-if="sources.length > 0" class="text-part__sources">
+      <span class="text-part__sources-label">Sources:</span>
+      <a
+        v-for="source in sources"
+        :key="source.url"
+        class="text-part__source-link"
+        :href="source.url"
+        :title="source.title"
+        target="_blank"
+        rel="noopener noreferrer"
+        >{{ source.title }}</a
+      >
     </div>
   </div>
 </template>
@@ -118,7 +163,8 @@ function renderMarkdown(source: string): string {
   margin: 0;
   line-height: 1.5;
 }
-.text-part__markdown :deep(a[title^="source:"]) {
+.text-part__markdown :deep(.text-part__source-link),
+.text-part__source-link {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
@@ -131,11 +177,24 @@ function renderMarkdown(source: string): string {
   text-decoration: none;
   vertical-align: text-bottom;
 }
-.text-part__markdown :deep(a[title^="source:"]:hover) {
+.text-part__markdown :deep(.text-part__source-link):hover,
+.text-part__source-link:hover {
   text-decoration: underline;
 }
-.text-part__markdown :deep(a[title^="source:"])::after {
+.text-part__markdown :deep(.text-part__source-link)::after,
+.text-part__source-link::after {
   content: "↗";
+}
+.text-part__sources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85em;
+  color: var(--text-muted);
+}
+.text-part__sources-label {
+  font-weight: 600;
 }
 .cursor {
   display: inline-block;

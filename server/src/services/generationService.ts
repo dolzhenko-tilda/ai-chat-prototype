@@ -90,9 +90,12 @@ function toModelReasoningEffort(effort: ReasoningEffort) {
  * Builds the system prompt that hands the model its citable source catalog
  * (see `mockSources.ts`) and the exact inline markdown link format a
  * citation must use: `[<title>](<url> "source:<title>")`. The client's
- * markdown renderer styles anchors matching `a[title^="source:"]` (see
- * `TextPart.vue`), so the model - not the server - decides which claims get
- * a citation and writes the link directly into its markdown response. The
+ * markdown renderer recognizes anchors whose `title` starts with `source:`
+ * (see `TextPart.vue`), strips that prefix, and styles them via a
+ * `text-part__source-link` class - it also lists every unique citation once
+ * more in a "Sources:" line at the end of the message. So the model - not
+ * the server - decides which claims get a citation and writes the link
+ * directly into its markdown response. The
  * model is told to cite as generously as it plausibly can (there's no
  * server-side control over how often it actually does).
  */
