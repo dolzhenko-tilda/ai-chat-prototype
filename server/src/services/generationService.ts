@@ -10,6 +10,7 @@ import { model, tools, APPROVAL_GATED_TOOLS } from "./llm.js";
 import { MOCK_SOURCES } from "./mockSources.js";
 import { messagesRepository } from "../repositories/messagesRepository.js";
 import { generationStateRepository } from "../repositories/generationStateRepository.js";
+import { partsToReplayChunks } from "../utils/replayChunks.js";
 import type {
   AppUIMessage,
   AppUIMessageChunk,
@@ -201,8 +202,48 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
   // what a subsequent `GET /messages/list` will return) - the model's first
   // chunk can arrive several seconds later (e.g. while it's reasoning), so a
   // fresh `Date.now()` at that point would drift from what's in the DB.
+  //
+  // For `/continue` (and tool-approval continuations), `conversation`'s last
+  // message *is* `assistantMessageId` itself, already carrying whatever parts
+  // (e.g. a finished reasoning part + the tool call being continued) were
+  // persisted by the *previous* generation for this same message. Reusing
+  // those parts here - instead of unconditionally resetting to `[]` - avoids
+  // briefly wiping them from SQLite the moment this new generation starts:
+  // if a client reloads/reconnects at that exact point, `GET /messages/list`
+  // must still be able to return those already-known parts alongside the
+  // "streaming" status (a resumed SSE stream only carries *this* generation's
+  // chunks, not the previous one's - it can't fill that gap back in).
+  const previousAssistantMessage = conversation[conversation.length - 1];
+  const initialParts: AppUIMessage["parts"] =
+    previousAssistantMessage?.role === "assistant" &&
+    previousAssistantMessage.id === assistantMessageId
+      ? previousAssistantMessage.parts
+      : [];
   const assistantCreatedAt = Date.now();
-  persistAssistantMessage(chatId, assistantMessageId, [], "streaming", assistantCreatedAt);
+  persistAssistantMessage(chatId, assistantMessageId, initialParts, "streaming", assistantCreatedAt);
+
+  // Seed the replay log (read by `GET /messages/resume`, see `streamGenerationToResponse`)
+  // with a synthetic `start` chunk plus `initialParts` converted back into an
+  // equivalent chunk sequence (see `partsToReplayChunks`'s doc comment for
+  // why this is necessary for `/continue`-triggered generations specifically).
+  // Deliberately pushed straight onto `gen.chunks` rather than through
+  // `emitter` - the live client that *triggered* this continuation already
+  // has these parts locally and doesn't need them replayed; only a client
+  // reconnecting via `/resume` reads `gen.chunks` from the start.
+  if (initialParts.length > 0) {
+    gen.chunks.push(
+      {
+        type: "start",
+        messageId: assistantMessageId,
+        messageMetadata: {
+          chatId,
+          status: "streaming",
+          createdAt: new Date(assistantCreatedAt).toISOString(),
+        },
+      },
+      ...partsToReplayChunks(initialParts),
+    );
+  }
 
   let finalMessage: AppUIMessage | undefined;
   let finalStatus: MessageStatus = "complete";
