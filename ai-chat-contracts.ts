@@ -1,12 +1,14 @@
 /**
  * REST/SSE API контракт между client и server в ai-chat-prototype.
  * Базовый URL: import.meta.env.VITE_SERVER_URL ?? "http://localhost:3001"
- * Префикс всех путей: /api
+ * Префикс всех путей: /api/v1
  *
  * Источники:
  * - client/src/services/api.ts
  * - client/src/services/serverChatTransport.ts
- * - server/src/routes/chats.ts
+ * - client/src/composables/useChatId.ts
+ * - server/src/routes/init.ts
+ * - server/src/routes/messages.ts
  * - server/README.md
  * - client/src/types/chat.ts
  * - server/src/services/llm.ts
@@ -66,14 +68,18 @@ type CustomParts = {
   // video: { url: string; title?: string; description?: string };
 };
 
-type MessageMetadata = {
-  status: MessageStatus;
-  createdAt: string;
-  rateInfo: RateInfo;
+type Context = {
+  pageUrl: string;
 };
 
 type UiMessageMetadata = {
-  context: { pageUrl: string };
+  context: Context;
+};
+
+type MessageMetadata = Partial<UiMessageMetadata> & {
+  status: MessageStatus;
+  createdAt: string;
+  rateInfo: RateInfo;
 };
 
 /** Часть сообщения, описывающая вызов тула. */
@@ -193,6 +199,7 @@ type GetMessagesResponse = ServerResponse<{
 type CreateMessageRequest = ClientRequest<{
   chatId: string;
   message: string;
+  metadata?: UiMessageMetadata;
 }>;
 
 /** Ответ — SSE-поток */

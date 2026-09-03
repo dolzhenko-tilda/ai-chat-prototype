@@ -2,8 +2,10 @@ import express from "express";
 import cors from "cors";
 import { env } from "./env.js";
 import "./db/index.js"; // ensures schema is created before anything else runs
-import { chatsRouter } from "./routes/chats.js";
+import { initRouter } from "./routes/init.js";
+import { messagesRouter } from "./routes/messages.js";
 import { reconcileStaleGenerationsOnStartup } from "./services/startup.js";
+import { sendError } from "./utils/response.js";
 
 reconcileStaleGenerationsOnStartup();
 
@@ -16,7 +18,8 @@ app.get("/health", (_req, res) => {
   res.json({ ok: true });
 });
 
-app.use("/api/chats", chatsRouter);
+app.use("/api/v1", initRouter);
+app.use("/api/v1/messages", messagesRouter);
 
 // Centralized error handler: turns unexpected exceptions into a 4xx/5xx JSON
 // body instead of an opaque connection drop (see spec section 8: edge cases).
@@ -31,7 +34,7 @@ app.use(
     console.error("[unhandled]", err);
     if (res.headersSent) return;
     const message = err instanceof Error ? err.message : "Internal server error";
-    res.status(500).json({ error: message });
+    sendError(res, 500, message);
   }
 );
 

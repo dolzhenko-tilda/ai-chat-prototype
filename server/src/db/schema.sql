@@ -2,6 +2,14 @@
 -- SQLite storage for chats, messages (as ai-sdk UIMessage parts) and
 -- in-flight generation state (used to support resume/cancel).
 
+-- Mock auth tokens minted by GET /api/v1/init (see routes/init.ts). The
+-- MVP has exactly one implicit user, so a token only proves "this client
+-- has completed init" - it isn't tied to a specific chat/user row.
+CREATE TABLE IF NOT EXISTS tokens (
+  token TEXT PRIMARY KEY,
+  created_at INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS chats (
   id TEXT PRIMARY KEY,
   created_at INTEGER NOT NULL,

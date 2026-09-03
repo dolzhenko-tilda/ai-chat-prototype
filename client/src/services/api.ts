@@ -2,27 +2,87 @@ import type { AppUIMessage } from "../types/chat";
 
 const baseUrl = import.meta.env.VITE_SERVER_URL ?? "http://localhost:3001";
 
+const TOKEN_STORAGE_KEY = "ai-chat-prototype:token";
+
+type ServerResponse<T> = { success: true; result: T } | { success: false; error?: string; errorCode?: string };
+
+/** Unwraps the `ServerResponse<T>` envelope from `ai-chat-contracts.ts`, throwing on `success: false`. */
+async function unwrap<T>(res: Response): Promise<T> {
+  const body = (await res.json().catch(() => null)) as ServerResponse<T> | null;
+  if (!body || !res.ok || !body.success) {
+    const error = body && !body.success ? body.error : undefined;
+    throw new Error(error ?? `Request failed (${res.status})`);
+  }
+  return body.result;
+}
+
 export const api = {
   baseUrl,
 
+  /** Reads the token minted by `init()`, if any (see `ensureAuth`). */
+  getToken(): string | null {
+    return localStorage.getItem(TOKEN_STORAGE_KEY);
+  },
+
+  setToken(token: string): void {
+    localStorage.setItem(TOKEN_STORAGE_KEY, token);
+  },
+
+  /**
+   * `GET /api/v1/init` (see `ai-chat-contracts.ts`): imitates authorization,
+   * returning a fresh token (required by every other request) and the
+   * chatId the client should open - the server's most recently used chat,
+   * or a brand new one if none exists yet.
+   */
+  async init(): Promise<{ chatId: string; token: string }> {
+    const res = await fetch(`${baseUrl}/api/v1/init`);
+    return unwrap(res);
+  },
+
   async getMessages(chatId: string): Promise<AppUIMessage[]> {
-    const res = await fetch(`${baseUrl}/api/chats/${chatId}/messages`);
-    if (!res.ok) throw new Error(`Failed to load messages (${res.status})`);
-    const data = (await res.json()) as { messages: AppUIMessage[] };
-    return data.messages;
+    const token = this.getToken();
+    const params = new URLSearchParams({ token: token ?? "", chatId });
+    const res = await fetch(`${baseUrl}/api/v1/messages/list?${params}`);
+    const { messages } = await unwrap<{ chatId: string; messages: AppUIMessage[]; hasMore: boolean }>(res);
+    return messages;
   },
 
   async deleteMessage(chatId: string, messageId: string): Promise<void> {
-    const res = await fetch(`${baseUrl}/api/chats/${chatId}/messages/${messageId}`, {
-      method: "DELETE",
+    const token = this.getToken();
+    const res = await fetch(`${baseUrl}/api/v1/messages/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, chatId, messageId }),
     });
-    if (!res.ok && res.status !== 204) {
-      throw new Error(`Failed to delete message (${res.status})`);
-    }
+    await unwrap(res);
   },
 
   async cancelGeneration(chatId: string): Promise<void> {
-    const res = await fetch(`${baseUrl}/api/chats/${chatId}/cancel`, { method: "POST" });
-    if (!res.ok) throw new Error(`Failed to cancel generation (${res.status})`);
+    const token = this.getToken();
+    const res = await fetch(`${baseUrl}/api/v1/messages/cancel`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, chatId }),
+    });
+    await unwrap(res);
   },
 };
+
+/**
+ * Ensures the client has a token + chatId before anything else runs (see
+ * `useAuth`): if both are already cached in localStorage, they're reused
+ * as-is with no network round-trip; otherwise `init()` is called once and
+ * its result is persisted.
+ */
+export async function ensureAuth(chatIdStorageKey: string): Promise<{ chatId: string; token: string }> {
+  const storedToken = api.getToken();
+  const storedChatId = localStorage.getItem(chatIdStorageKey);
+  if (storedToken && storedChatId) {
+    return { token: storedToken, chatId: storedChatId };
+  }
+
+  const { chatId, token } = await api.init();
+  api.setToken(token);
+  localStorage.setItem(chatIdStorageKey, chatId);
+  return { chatId, token };
+}

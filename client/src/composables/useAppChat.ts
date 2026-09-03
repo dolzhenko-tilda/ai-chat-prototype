@@ -9,9 +9,11 @@ import type { AppUIMessage, ReasoningEffort } from "../types/chat";
  * Wires up `@ai-sdk/vue`'s `useChat` against our server transport, and adds
  * the two behaviours the spec requires on top of it that ai-sdk doesn't do
  * automatically:
- *  - loading full history via GET /messages on (re)init (section 7.1.2)
- *  - separately trying to resume an in-flight generation via GET /resume
- *    (section 7.1.3)
+ *  - loading full history via GET /messages/list on (re)init (section 7.1.2)
+ *  - separately trying to resume an in-flight generation via GET /resume,
+ *    but only when the last loaded message is an assistant message still
+ *    `streaming` (section 7.1.3 / `ai-chat-contracts.ts`'s
+ *    `ResumeGenerationRequest`)
  *  - auto-executing the client-side `logToConsole` tool (section 7.6)
  */
 export function useAppChat(
@@ -55,20 +57,32 @@ export function useAppChat(
   }));
 
   async function loadChat(id: string) {
+    // Empty id means auth/init (see `useChatId`) hasn't resolved yet - skip;
+    // the `watch` below re-fires once `chatId` becomes truthy.
+    if (!id) return;
     isLoadingHistory.value = true;
     historyError.value = null;
+    let history: AppUIMessage[] = [];
     try {
-      chat.messages.value = await api.getMessages(id);
+      history = await api.getMessages(id);
+      chat.messages.value = history;
     } catch (e) {
       historyError.value = e instanceof Error ? e.message : String(e);
     } finally {
       isLoadingHistory.value = false;
     }
-    // Section 7.1.3: separate request to check for/resume an active generation.
-    try {
-      await chat.resumeStream();
-    } catch {
-      // A failed resume shouldn't break the UI (section 8: edge cases).
+
+    // Section 7.1.3: separate request to check for/resume an active
+    // generation - only worth it if the last message we just loaded is an
+    // assistant message still in "streaming" state (per `ai-chat-contracts.ts`'s
+    // `ResumeGenerationRequest` comment), otherwise there's nothing to resume.
+    const last = history[history.length - 1];
+    if (last?.role === "assistant" && last.metadata?.status === "streaming") {
+      try {
+        await chat.resumeStream();
+      } catch {
+        // A failed resume shouldn't break the UI (section 8: edge cases).
+      }
     }
   }
 

@@ -1,5 +1,6 @@
 import { parseJsonEventStream, uiMessageChunkSchema } from "ai";
 import type { ChatRequestOptions, ChatTransport, UIMessageChunk } from "ai";
+import { api } from "./api";
 import type { AppUIMessage, ReasoningEffort } from "../types/chat";
 
 export interface ServerChatTransportOptions {
@@ -10,15 +11,40 @@ export interface ServerChatTransportOptions {
   reasoningEffort: () => ReasoningEffort;
 }
 
+function extractText(message: AppUIMessage): string {
+  return message.parts
+    .filter((p): p is Extract<AppUIMessage["parts"][number], { type: "text" }> => p.type === "text")
+    .map((p) => p.text)
+    .join("\n");
+}
+
 /**
- * Talks to the ai-chat-prototype server's REST/SSE API (see server/README.md
- * for the exact endpoint contract). Implements ai-sdk's `ChatTransport`
- * directly (rather than extending `DefaultChatTransport`) because our
- * endpoints don't follow the single-POST-to-one-URL convention: submitting a
- * new user message, regenerating an assistant message, and continuing after
- * a client-side tool result / tool-approval response are three different
- * routes, and the client only ever sends the single new/updated message
- * (never the whole history) as required by the spec.
+ * Picks the tool part `/continue` should forward as `toolPart` (see
+ * `ai-chat-contracts.ts`'s `ContinueMessageRequest`, which - unlike our
+ * previous ad-hoc `/continue` endpoint - only carries a single tool part,
+ * not the whole message). We don't track which part changed since the last
+ * sync, so this picks the last tool/dynamic-tool part in the message; this
+ * only loses information if the model calls more than one tool in the same
+ * step, which doesn't happen with this demo's tool set.
+ */
+function findToolPartToContinue(message: AppUIMessage): AppUIMessage["parts"][number] | undefined {
+  for (let i = message.parts.length - 1; i >= 0; i--) {
+    const part = message.parts[i];
+    if (part.type === "dynamic-tool" || part.type.startsWith("tool-")) return part;
+  }
+  return undefined;
+}
+
+/**
+ * Talks to the ai-chat-prototype server's REST/SSE API (see
+ * `ai-chat-contracts.ts` for the exact endpoint contract). Implements
+ * ai-sdk's `ChatTransport` directly (rather than extending
+ * `DefaultChatTransport`) because our endpoints don't follow the
+ * single-POST-to-one-URL convention: submitting a new user message,
+ * regenerating an assistant message, and continuing after a client-side tool
+ * result / tool-approval response are three different routes, and the
+ * client only ever sends the single new/updated message (never the whole
+ * history) as required by the spec.
  */
 export class ServerChatTransport implements ChatTransport<AppUIMessage> {
   private options: ServerChatTransportOptions;
@@ -40,13 +66,13 @@ export class ServerChatTransport implements ChatTransport<AppUIMessage> {
 
   private async post(
     path: string,
-    body: unknown,
+    body: Record<string, unknown>,
     abortSignal: AbortSignal | undefined
   ): Promise<ReadableStream<UIMessageChunk>> {
     const res = await fetch(`${this.options.baseUrl}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ token: api.getToken(), ...body }),
       signal: abortSignal,
     });
     if (!res.ok) {
@@ -73,8 +99,8 @@ export class ServerChatTransport implements ChatTransport<AppUIMessage> {
       const targetId = messageId ?? messages[messages.length - 1]?.id;
       if (!targetId) throw new Error("regenerate-message requires a messageId");
       return this.post(
-        `/api/chats/${chatId}/messages/${targetId}/regenerate`,
-        { requireApproval, reasoningEffort },
+        "/api/v1/messages/regenerate",
+        { chatId, messageId: targetId, requireApproval, reasoningEffort },
         abortSignal
       );
     }
@@ -86,20 +112,24 @@ export class ServerChatTransport implements ChatTransport<AppUIMessage> {
     if (last.role === "assistant") {
       // Continuation: the AI SDK re-submits after a client-side tool result
       // (addToolOutput) or a tool-approval response (addToolApprovalResponse)
-      // was recorded on the last assistant message. Forward just that
-      // updated message to /continue so the server can feed it back to the LLM.
+      // was recorded on the last assistant message. Forward just the
+      // relevant tool part to /continue so the server can merge it into the
+      // stored message and feed the result back to the LLM.
+      const toolPart = findToolPartToContinue(last);
+      if (!toolPart) throw new Error("No tool part to continue with");
       return this.post(
-        `/api/chats/${chatId}/messages/${last.id}/continue`,
-        { message: last, requireApproval, reasoningEffort },
+        "/api/v1/messages/continue",
+        { chatId, messageId: last.id, toolPart, requireApproval, reasoningEffort },
         abortSignal
       );
     }
 
     // Normal case: a brand new user message. Per spec, only this single
-    // message is sent - never the full history (server keeps it in SQLite).
+    // message is sent (as plain text) - never the full history (server
+    // keeps it in SQLite).
     return this.post(
-      `/api/chats/${chatId}/messages`,
-      { message: last, requireApproval, reasoningEffort },
+      "/api/v1/messages/create",
+      { chatId, message: extractText(last), requireApproval, reasoningEffort },
       abortSignal
     );
   }
@@ -110,7 +140,8 @@ export class ServerChatTransport implements ChatTransport<AppUIMessage> {
   }: Parameters<ChatTransport<AppUIMessage>["reconnectToStream"]>[0] & ChatRequestOptions): Promise<
     ReadableStream<UIMessageChunk> | null
   > {
-    const res = await fetch(`${this.options.baseUrl}/api/chats/${chatId}/resume`, {
+    const params = new URLSearchParams({ token: api.getToken() ?? "", chatId });
+    const res = await fetch(`${this.options.baseUrl}/api/v1/messages/resume?${params}`, {
       method: "GET",
       signal: abortSignal,
     });

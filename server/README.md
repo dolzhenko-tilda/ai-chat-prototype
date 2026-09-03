@@ -32,7 +32,8 @@ npm run start   # node dist/index.js (после build)
 
 См. точный DDL в [`src/db/schema.sql`](src/db/schema.sql). Кратко:
 
-- **`chats`** — `id`, `created_at`, `updated_at`. Строка создаётся implicitly при первом обращении к чату (первом `GET /messages` или первом сообщении) — отдельного эндпоинта создания чата нет, как и допускает ТЗ.
+- **`tokens`** — `token`, `created_at`. Минтится `GET /api/v1/init` (см. ниже); MVP-у достаточно одного неявного пользователя, поэтому токен ни к чему не привязан — он лишь подтверждает, что клиент прошёл `/init`.
+- **`chats`** — `id`, `created_at`, `updated_at`. Строка создаётся implicitly при первом обращении к чату (первом `POST /messages/create`) — отдельного эндпоинта создания чата нет, как и допускает ТЗ.
 - **`messages`** — `id`, `chat_id`, `role`, `parts` (JSON-массив ai-sdk `UIMessage.parts`), `status` (`complete` | `streaming` | `aborted` | `error`), `seq` (порядок в чате), `created_at`. Полю `status` соответствует `message.metadata.status` в отдаваемом клиенту `UIMessage` — так фронт может показать бейдж "Stopped"/"Error" даже для сообщений, загруженных из истории.
 - **`generation_state`** — по одной строке на чат: `message_id` активной/последней генерации, `accumulated_chunks` (JSON-массив уже отправленных `UIMessageChunk`, нужен для resume), `is_active`, `abort_requested`.
 
@@ -40,31 +41,43 @@ npm run start   # node dist/index.js (после build)
 
 ## API
 
-Префикс — `/api`. Тело запросов/ответов — JSON, кроме генерации и resume, которые отдают **SSE** (`text/event-stream`).
+Полный TypeScript-контракт запросов/ответов — [`ai-chat-contracts.ts`](../ai-chat-contracts.ts) в корне репозитория; здесь — как он реализован в этом сервере.
 
-### `GET /api/chats/:chatId/messages`
+Префикс — `/api/v1`. Тело успешного JSON-ответа всегда обёрнуто как `{ "success": true, "result": ... }`, ошибки — как `{ "success": false, "error": "...", "errorCode"?: "..." }` (см. `ServerResponse<T>` в контракте). Исключение — генерация и resume, которые отдают **SSE** (`text/event-stream`) напрямую, без обёртки.
 
-Возвращает полную историю сообщений чата, отсортированную по порядку. Если чата ещё нет — создаёт пустую запись чата и возвращает пустой массив.
+Каждый запрос, кроме `GET /init`, обязан передать `token`, полученный от `/init`: в query-строке для `GET`-эндпоинтов, в теле JSON — для `POST`. Отсутствующий/неизвестный токен → `401` с `errorCode: "UNAUTHORIZED"`.
+
+### `GET /api/v1/init`
+
+Имитация авторизации: минтит новый `token` и возвращает `chatId` — последний использованный чат, если такой есть, иначе только что созданный пустой. Клиент вызывает этот эндпоинт только если у него ещё нет токена в `localStorage` (см. `client/src/composables/useChatId.ts`); если токен уже сохранён — он переиспользуется без сетевого запроса.
 
 ```json
-{ "messages": [ { "id": "...", "role": "user" | "assistant", "parts": [...], "metadata": { "status": "complete" } } ] }
+{ "success": true, "result": { "chatId": "...", "token": "..." } }
 ```
 
-### `POST /api/chats/:chatId/messages`
+### `GET /api/v1/messages/list`
 
-Отправка нового сообщения пользователя. Тело — **только новое сообщение**, клиент не пересылает историю:
+Возвращает полную историю сообщений чата, отсортированную по порядку (с опциональной пагинацией через `beforeId`/`limit`). Если чата ещё нет — возвращает пустой массив (в отличие от остальных эндпоинтов, чат implicitly не создаётся).
+
+```json
+{ "success": true, "result": { "chatId": "...", "messages": [ { "id": "...", "role": "user" | "assistant", "parts": [...], "metadata": { "status": "complete" } } ], "hasMore": false } }
+```
+
+### `POST /api/v1/messages/create`
+
+Отправка нового сообщения пользователя. Тело — **только новое сообщение** (как обычный текст, см. `CreateMessageRequest`), клиент не пересылает историю:
 
 ```json
 {
-  "message": { "role": "user", "parts": [{ "type": "text", "text": "..." }] },
+  "token": "...",
+  "chatId": "...",
+  "message": "...",
   "requireApproval": false,
   "reasoningEffort": "medium"
 }
 ```
 
-`requireApproval` — опциональный флаг (по умолчанию `false`); если `true`, вызовы "чувствительных" тулов (см. ниже про tool approval) потребуют явного подтверждения пользователя, прежде чем выполнятся.
-
-`reasoningEffort` — опциональный уровень "размышлений" модели: `"off" | "minimal" | "low" | "medium" | "high" | "xhigh"` (по умолчанию `"medium"`). Прокидывается в `streamText` как стандартизированная опция `reasoning` (`"off"` маппится на `"none"`, полностью отключая thinking у моделей, которые это поддерживают).
+`requireApproval`/`reasoningEffort` — необязательное расширение сверх `ai-chat-contracts.ts` (нужны существующему UI настроек, см. `useChatSettings.ts`); любой клиент, следующий только документированному контракту, продолжит работать и без них. `requireApproval` (по умолчанию `false`): если `true`, вызовы "чувствительных" тулов (см. ниже про tool approval) потребуют явного подтверждения пользователя, прежде чем выполнятся. `reasoningEffort` — опциональный уровень "размышлений" модели: `"off" | "minimal" | "low" | "medium" | "high" | "xhigh"` (по умолчанию `"medium"`). Прокидывается в `streamText` как стандартизированная опция `reasoning` (`"off"` маппится на `"none"`, полностью отключая thinking у моделей, которые это поддерживают).
 
 Мок-источники (см. `server/src/services/mockSources.ts`) передаются модели через системный промпт вместе с инструкцией цитировать их как можно чаще; саму ссылку в формате `[title](url "source:title")` вставляет в markdown-ответ сама LLM, а не бэкенд. Фронт стилизует такие ссылки по CSS-селектору `a[title^="source:"]`.
 
@@ -72,28 +85,31 @@ npm run start   # node dist/index.js (после build)
 
 Отвечает потоком SSE (см. "Формат SSE" ниже).
 
-### `POST /api/chats/:chatId/messages/:messageId/regenerate`
+### `POST /api/v1/messages/regenerate`
 
-Перегенерация ответа ассистента. **Семантика:** `:messageId` — id **сообщения ассистента**, которое нужно перегенерировать. Сервер берёт всю историю строго **до** этого сообщения (не включая), удаляет его и все более поздние сообщения, и создаёт **новое** сообщение ассистента (с новым `id`) взамен.
+Перегенерация ответа ассистента. **Семантика:** `messageId` — id **сообщения ассистента**, которое нужно перегенерировать. Сервер берёт всю историю строго **до** этого сообщения (не включая), удаляет его и все более поздние сообщения, и создаёт **новое** сообщение ассистента (с новым `id`) взамен.
 
 ```json
-{ "requireApproval": false, "reasoningEffort": "medium" }
+{ "token": "...", "chatId": "...", "messageId": "...", "requireApproval": false, "reasoningEffort": "medium" }
 ```
 
 Отвечает потоком SSE.
 
-### `POST /api/chats/:chatId/messages/:messageId/continue`
+### `POST /api/v1/messages/continue`
 
 Не из основного списка ТЗ, но нужен для двух функций из раздела 6/7.6/tool-approval:
 
 - после того как **клиентский** тул (`logToConsole`) выполнился в браузере,
 - после того как пользователь одобрил/отклонил вызов тула, требующего approval,
 
-клиент отправляет обновлённое сообщение ассистента (то же `id`, но с дополненными/изменёнными частями инструментов) сюда, а сервер докармливает его в LLM и продолжает генерацию **того же** сообщения.
+клиент отправляет обновлённую часть инструмента (`toolPart`, см. `ContinueMessageRequest`) сюда; сервер вливает её в сохранённое сообщение-ассистент (сопоставляя по `toolCallId`) и докармливает результат в LLM, продолжая генерацию **того же** сообщения.
 
 ```json
 {
-  "message": { "role": "assistant", "parts": [ /* обновлённые tool-parts */ ] },
+  "token": "...",
+  "chatId": "...",
+  "messageId": "...",
+  "toolPart": { "type": "tool-calculate", "toolCallId": "...", "state": "output-available", "output": { ... } },
   "requireApproval": false,
   "reasoningEffort": "medium"
 }
@@ -101,24 +117,28 @@ npm run start   # node dist/index.js (после build)
 
 Отвечает потоком SSE.
 
-### `DELETE /api/chats/:chatId/messages/:messageId`
+### `POST /api/v1/messages/delete`
 
-Удаляет сообщение из истории. `204 No Content` при успехе, `404` если сообщения не существует.
+Удаляет сообщение из истории.
 
-### `POST /api/chats/:chatId/cancel`
+```json
+{ "token": "...", "chatId": "...", "messageId": "..." }
+```
+
+### `POST /api/v1/messages/cancel`
 
 Останавливает активную генерацию для чата, если она есть: выставляет `abort_requested`, прерывает вызов LLM (`AbortController` внутри `streamText`), сохраняет то, что успело сгенерироваться, с `status=aborted`, закрывает SSE-поток.
 
 ```json
-{ "cancelled": true }
+{ "success": true, "result": { "cancelled": true } }
 ```
 
-### `GET /api/chats/:chatId/resume` (SSE)
+### `GET /api/v1/messages/resume` (SSE)
 
-Вызывается клиентом при инициализации чата (например, после обновления страницы), отдельно от `GET /messages`.
+Вызывается клиентом при инициализации чата (например, после обновления страницы), отдельно от `GET /messages/list`.
 
 - Если для чата есть активная генерация — сервер сразу шлёт уже накопленные чанки (`generation_state.accumulated_chunks`), а затем продолжает стримить новые чанки по мере их появления через тот же поток.
-- Если активной генерации нет — отвечает `204 No Content` без тела (клиент интерпретирует это как "нечего резюмировать").
+- Если активной генерации нет — отвечает `204 No Content` без тела (клиент интерпретирует это как "нечего резюмировать"; контрактный тип `ReadableStream<MessageChunk> | null` не выразим как JSON-конверт, поэтому для `null`-случая используется HTTP-статус, а не `{success:false}`).
 
 ## Формат SSE (протокол стриминга)
 
@@ -128,7 +148,7 @@ npm run start   # node dist/index.js (после build)
 
 Ошибки, которые прерывают генерацию целиком (сеть, исключение в `streamText`), дополнительно оборачиваются в кастомную data-часть `{"type":"data-error","data":{"message":"..."}}`, чтобы клиент мог отрисовать их как постоянную часть сообщения (а не только как временный баннер).
 
-Клиент реализует `ChatTransport` из `ai` вручную (см. `client/src/services/serverChatTransport.ts`), а не использует готовый `DefaultChatTransport`, потому что API сервера — это несколько разных маршрутов (`/messages`, `/regenerate`, `/continue`, `/resume`), а не единая точка `POST /api/chat`.
+Клиент реализует `ChatTransport` из `ai` вручную (см. `client/src/services/serverChatTransport.ts`), а не использует готовый `DefaultChatTransport`, потому что API сервера — это несколько разных маршрутов (`/messages/create`, `/messages/regenerate`, `/messages/continue`, `/messages/resume`), а не единая точка `POST /api/chat`.
 
 ## Инструменты (tools)
 
@@ -136,8 +156,8 @@ npm run start   # node dist/index.js (после build)
 
 - **`calculate`** (серверный) — вычисляет арифметическое выражение. Единственный тул из списка `APPROVAL_GATED_TOOLS`, поэтому именно на нём проверяется tool-approval флоу.
 - **`getCurrentTime`** (серверный) — возвращает текущее время сервера.
-- **`logToConsole`** (без `execute`) — не выполняется на сервере: `ai-sdk` останавливает шаг на `tool-input-available` и отдаёт вызов клиенту как есть; браузер выполняет `console.log(...)` и присылает результат обратно через `POST /continue` (см. `client/src/composables/useAppChat.ts`, `onToolCall`).
+- **`logToConsole`** (без `execute`) — не выполняется на сервере: `ai-sdk` останавливает шаг на `tool-input-available` и отдаёт вызов клиенту как есть; браузер выполняет `console.log(...)` и присылает результат обратно через `POST /messages/continue` (см. `client/src/composables/useAppChat.ts`, `onToolCall`).
 
 ## Tool Approval
 
-Дополнительная фича поверх ТЗ: если клиент передаёт `requireApproval: true`, сервер конфигурирует `toolApproval: { calculate: "user-approval" }` в `streamText`. Модель, вызывая `calculate`, вместо немедленного выполнения получает статус `approval-requested` (см. `tool-approval-request` чанк); фронт показывает кнопки Approve/Deny, а результат выбора пользователя уходит на `POST /continue` в виде обновлённого `tool-*` части с полем `approval.approved`.
+Дополнительная фича поверх ТЗ: если клиент передаёт `requireApproval: true`, сервер конфигурирует `toolApproval: { calculate: "user-approval" }` в `streamText`. Модель, вызывая `calculate`, вместо немедленного выполнения получает статус `approval-requested` (см. `tool-approval-request` чанк); фронт показывает кнопки Approve/Deny, а результат выбора пользователя уходит на `POST /messages/continue` в виде обновлённой `tool-*` части с полем `approval.approved`.

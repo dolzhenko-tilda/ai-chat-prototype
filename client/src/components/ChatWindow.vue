@@ -7,7 +7,7 @@ import { api } from "../services/api";
 import MessageList from "./MessageList.vue";
 import ChatInput from "./ChatInput.vue";
 
-const { chatId, newChat } = useChatId();
+const { chatId, newChat, isInitializing, initError } = useChatId();
 const { requireApproval, reasoningEffort } = useChatSettings();
 const { chat, isLoadingHistory, historyError, reload } = useAppChat(
   chatId,
@@ -27,6 +27,9 @@ const { chat, isLoadingHistory, historyError, reload } = useAppChat(
 const messages = computed(() => [...chat.messages.value]);
 
 async function onSend(text: string) {
+  // Guards against the brief window before `useChatId`'s init/auth call
+  // resolves (see the "Connecting…" notice below).
+  if (!chatId.value) return;
   await chat.sendMessage({ text });
 }
 
@@ -86,9 +89,11 @@ async function onNewChat() {
   <div class="chat-window">
     <header class="chat-window__header">
       <h1>AI Chat Prototype</h1>
-      <button type="button" class="btn" @click="onNewChat">New chat</button>
+      <button type="button" class="btn" :disabled="isInitializing" @click="onNewChat">New chat</button>
     </header>
 
+    <p v-if="isInitializing" class="chat-window__notice">Connecting…</p>
+    <p v-if="initError" class="chat-window__notice chat-window__notice--error">{{ initError }}</p>
     <p v-if="isLoadingHistory" class="chat-window__notice">Loading history…</p>
     <p v-if="historyError" class="chat-window__notice chat-window__notice--error">{{ historyError }}</p>
     <p v-if="chat.error.value" class="chat-window__notice chat-window__notice--error">

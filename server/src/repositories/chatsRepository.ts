@@ -11,10 +11,18 @@ const insertChatStmt = db.prepare(
 );
 const getChatStmt = db.prepare(`SELECT id, created_at as createdAt, updated_at as updatedAt FROM chats WHERE id = ?`);
 const touchChatStmt = db.prepare(`UPDATE chats SET updated_at = ? WHERE id = ?`);
+const getLastChatStmt = db.prepare(
+  `SELECT id, created_at as createdAt, updated_at as updatedAt FROM chats ORDER BY updated_at DESC LIMIT 1`
+);
 
 export const chatsRepository = {
   get(chatId: string): ChatRow | undefined {
     return getChatStmt.get(chatId) as ChatRow | undefined;
+  },
+
+  /** Most recently updated chat, if any (used by `GET /api/v1/init` - see routes/init.ts). */
+  getLast(): ChatRow | undefined {
+    return getLastChatStmt.get() as ChatRow | undefined;
   },
 
   /** Creates the chat row if it doesn't exist yet (chats are created implicitly, see README). */
