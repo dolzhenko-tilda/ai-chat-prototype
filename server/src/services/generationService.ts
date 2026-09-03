@@ -116,6 +116,7 @@ function persistAssistantMessage(
   messageId: string,
   parts: AppUIMessage["parts"],
   status: MessageStatus,
+  createdAt: number = Date.now(),
 ) {
   const existing = messagesRepository.getById(messageId);
   if (existing) {
@@ -127,7 +128,7 @@ function persistAssistantMessage(
       role: "assistant",
       parts,
       status,
-      createdAt: Date.now(),
+      createdAt,
     });
   }
 }
@@ -195,7 +196,13 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
   generationStateRepository.start(chatId, assistantMessageId);
 
   // Placeholder row so history/resume immediately reflect the "streaming" state.
-  persistAssistantMessage(chatId, assistantMessageId, [], "streaming");
+  // Captured once and reused below for the `start` chunk's `messageMetadata`
+  // so the live-streamed `createdAt` matches exactly what gets persisted (and
+  // what a subsequent `GET /messages/list` will return) - the model's first
+  // chunk can arrive several seconds later (e.g. while it's reasoning), so a
+  // fresh `Date.now()` at that point would drift from what's in the DB.
+  const assistantCreatedAt = Date.now();
+  persistAssistantMessage(chatId, assistantMessageId, [], "streaming", assistantCreatedAt);
 
   let finalMessage: AppUIMessage | undefined;
   let finalStatus: MessageStatus = "complete";
@@ -282,7 +289,9 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
         // stream, before any text/tool parts arrive. `status: "streaming"`
         // mirrors the placeholder row just persisted above.
         messageMetadata: ({ part }) =>
-          part.type === "start" ? { chatId, status: "streaming" } : undefined,
+          part.type === "start"
+            ? { chatId, status: "streaming", createdAt: new Date(assistantCreatedAt).toISOString() }
+            : undefined,
         onError: (error) =>
           error instanceof Error ? error.message : "An error occurred.",
         onEnd: ({ responseMessage, outcome }) => {

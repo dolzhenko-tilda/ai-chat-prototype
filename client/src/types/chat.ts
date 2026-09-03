@@ -55,16 +55,16 @@ export type Context = {
 
 export type AppUIMessageMetadata = {
   status: MessageStatus;
-  /** Present only once the (assistant) message has been rated. */
-  rateInfo?: RateInfo;
-  /** ISO timestamp the message was created at (used to render its time and to group messages by day). */
-  createdAt?: string;
   /** The chat this message belongs to. Every message has one (mirroring
    * `status`, it's required within the metadata shape even though the
    * top-level `metadata` field itself can briefly be absent client-side,
    * before the first streamed chunk populates it - see
    * `AppUIMessage["metadata"]`/ai-sdk's `createStreamingUIMessageState`). */
   chatId: string;
+  /** ISO timestamp the message was created at (used to render its time and to group messages by day). Required like `status`/`chatId` - every message has one. */
+  createdAt: string;
+  /** Present only once the (assistant) message has been rated. */
+  rateInfo?: RateInfo;
   /** Present on a user message sent along with page context (see `Context`). */
   context?: Context;
 };

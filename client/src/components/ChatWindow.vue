@@ -100,7 +100,7 @@ async function onRate(messageId: string, rate: Rate) {
           ...m,
           metadata: {
             status: m.metadata?.status ?? "complete",
-            createdAt: m.metadata?.createdAt,
+            createdAt: m.metadata?.createdAt ?? new Date().toISOString(),
             chatId: m.metadata?.chatId ?? chatId.value,
             rateInfo,
           },
