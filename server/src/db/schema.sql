@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS tokens (
 
 CREATE TABLE IF NOT EXISTS chats (
   id TEXT PRIMARY KEY,
+  name TEXT, -- NULL until auto-titled from the first user message or explicitly renamed (see POST /api/v1/chats/rename)
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );

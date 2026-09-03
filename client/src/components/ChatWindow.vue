@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { useChatId } from "../composables/useChatId";
 import { useAppChat } from "../composables/useAppChat";
 import { useChatSettings } from "../composables/useChatSettings";
@@ -7,14 +7,17 @@ import { api } from "../services/api";
 import type { Rate } from "../types/chat";
 import MessageList from "./MessageList.vue";
 import ChatInput from "./ChatInput.vue";
+import ChatHistory from "./ChatHistory.vue";
 
-const { chatId, newChat, isInitializing, initError } = useChatId();
+const { chatId, newChat, openChat, isInitializing, initError } = useChatId();
 const { requireApproval, reasoningEffort } = useChatSettings();
 const { chat, isLoadingHistory, historyError, reload } = useAppChat(
   chatId,
   requireApproval,
   reasoningEffort,
 );
+
+const showHistory = ref(false);
 
 // `chat.messages` is a shallowRef that ai-sdk mutates in place (push/replace by
 // index) followed by `triggerRef` - the array reference itself never changes.
@@ -92,6 +95,22 @@ async function onNewChat() {
     await stopActiveGeneration();
   }
   newChat();
+  showHistory.value = false;
+}
+
+async function onSelectChatFromHistory(id: string) {
+  // Empty id means the chat open in the history view's parent was just
+  // deleted there (see `ChatHistory.vue`'s `onDelete`) - start a fresh chat
+  // instead of trying to reopen something that no longer exists.
+  if (!id) {
+    await onNewChat();
+    return;
+  }
+  if (id !== chatId.value && (chat.status.value === "streaming" || chat.status.value === "submitted")) {
+    await stopActiveGeneration();
+  }
+  openChat(id);
+  showHistory.value = false;
 }
 </script>
 
@@ -99,37 +118,51 @@ async function onNewChat() {
   <div class="chat-window">
     <header class="chat-window__header">
       <h1>AI Chat Prototype</h1>
-      <button type="button" class="btn" :disabled="isInitializing" @click="onNewChat">New chat</button>
+      <div class="chat-window__header-actions">
+        <button type="button" class="btn" :disabled="isInitializing" @click="showHistory = true">
+          History
+        </button>
+        <button type="button" class="btn" :disabled="isInitializing" @click="onNewChat">New chat</button>
+      </div>
     </header>
 
-    <p v-if="isInitializing" class="chat-window__notice">Connecting…</p>
-    <p v-if="initError" class="chat-window__notice chat-window__notice--error">{{ initError }}</p>
-    <p v-if="isLoadingHistory" class="chat-window__notice">Loading history…</p>
-    <p v-if="historyError" class="chat-window__notice chat-window__notice--error">{{ historyError }}</p>
-    <p v-if="chat.error.value" class="chat-window__notice chat-window__notice--error">
-      {{ chat.error.value.message }}
-      <button type="button" class="btn btn--ghost" @click="chat.clearError(); reload()">Dismiss</button>
-    </p>
-
-    <MessageList
-      :messages="messages"
-      :status="chat.status.value"
-      @delete="onDelete"
-      @regenerate="onRegenerate"
-      @approve="onApprove"
-      @deny="onDeny"
-      @rate="onRate"
+    <ChatHistory
+      v-if="showHistory"
+      :active-chat-id="chatId"
+      @back="showHistory = false"
+      @select="onSelectChatFromHistory"
     />
 
-    <ChatInput
-      :status="chat.status.value"
-      :require-approval="requireApproval"
-      :reasoning-effort="reasoningEffort"
-      @send="onSend"
-      @stop="onStop"
-      @update:require-approval="(v) => (requireApproval = v)"
-      @update:reasoning-effort="(v) => (reasoningEffort = v)"
-    />
+    <template v-else>
+      <p v-if="isInitializing" class="chat-window__notice">Connecting…</p>
+      <p v-if="initError" class="chat-window__notice chat-window__notice--error">{{ initError }}</p>
+      <p v-if="isLoadingHistory" class="chat-window__notice">Loading history…</p>
+      <p v-if="historyError" class="chat-window__notice chat-window__notice--error">{{ historyError }}</p>
+      <p v-if="chat.error.value" class="chat-window__notice chat-window__notice--error">
+        {{ chat.error.value.message }}
+        <button type="button" class="btn btn--ghost" @click="chat.clearError(); reload()">Dismiss</button>
+      </p>
+
+      <MessageList
+        :messages="messages"
+        :status="chat.status.value"
+        @delete="onDelete"
+        @regenerate="onRegenerate"
+        @approve="onApprove"
+        @deny="onDeny"
+        @rate="onRate"
+      />
+
+      <ChatInput
+        :status="chat.status.value"
+        :require-approval="requireApproval"
+        :reasoning-effort="reasoningEffort"
+        @send="onSend"
+        @stop="onStop"
+        @update:require-approval="(v) => (requireApproval = v)"
+        @update:reasoning-effort="(v) => (reasoningEffort = v)"
+      />
+    </template>
   </div>
 </template>
 
@@ -148,6 +181,10 @@ async function onNewChat() {
   justify-content: space-between;
   padding: 1rem;
   border-bottom: 1px solid var(--border);
+}
+.chat-window__header-actions {
+  display: flex;
+  gap: 0.5rem;
 }
 .chat-window__header h1 {
   font-size: 1.1rem;

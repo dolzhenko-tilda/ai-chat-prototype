@@ -44,5 +44,11 @@ export function useChatId() {
     return id;
   }
 
-  return { chatId, newChat, isInitializing, initError };
+  /** Switches to an existing chat (e.g. one picked from the history list) and persists it. */
+  function openChat(id: string): void {
+    chatId.value = id;
+    localStorage.setItem(STORAGE_KEY, id);
+  }
+
+  return { chatId, newChat, openChat, isInitializing, initError };
 }

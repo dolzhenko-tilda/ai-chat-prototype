@@ -1,4 +1,4 @@
-import type { AppUIMessage, Rate, RateInfo, RateResult } from "../types/chat";
+import type { AppUIMessage, Chat, Rate, RateInfo, RateResult } from "../types/chat";
 
 const baseUrl = import.meta.env.VITE_SERVER_URL ?? "http://localhost:3001";
 
@@ -86,6 +86,37 @@ export const api = {
       body: JSON.stringify({ token, chatId, messageId, rate }),
     });
     return unwrap<RateResult>(res);
+  },
+
+  /** `GET /api/v1/chats/list` - see `GetChatsRequest`/`GetChatsResponse`. */
+  async getChats(): Promise<Chat[]> {
+    const token = this.getToken();
+    const params = new URLSearchParams({ token: token ?? "" });
+    const res = await fetch(`${baseUrl}/api/v1/chats/list?${params}`);
+    const { chats } = await unwrap<{ chats: Chat[]; hasMore: boolean }>(res);
+    return chats;
+  },
+
+  /** `POST /api/v1/chats/rename` - see `RenameChatRequest`/`RenameChatResponse`. */
+  async renameChat(chatId: string, name: string): Promise<void> {
+    const token = this.getToken();
+    const res = await fetch(`${baseUrl}/api/v1/chats/rename`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, chatId, name }),
+    });
+    await unwrap(res);
+  },
+
+  /** `POST /api/v1/chats/delete` - see `DeleteChatRequest`/`DeleteChatResponse`. */
+  async deleteChat(chatId: string): Promise<void> {
+    const token = this.getToken();
+    const res = await fetch(`${baseUrl}/api/v1/chats/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ token, chatId }),
+    });
+    await unwrap(res);
   },
 };
 

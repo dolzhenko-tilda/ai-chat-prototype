@@ -4,6 +4,7 @@ import { env } from "./env.js";
 import "./db/index.js"; // ensures schema is created before anything else runs
 import { initRouter } from "./routes/init.js";
 import { messagesRouter } from "./routes/messages.js";
+import { chatsRouter } from "./routes/chats.js";
 import { reconcileStaleGenerationsOnStartup } from "./services/startup.js";
 import { sendError } from "./utils/response.js";
 
@@ -20,6 +21,7 @@ app.get("/health", (_req, res) => {
 
 app.use("/api/v1", initRouter);
 app.use("/api/v1/messages", messagesRouter);
+app.use("/api/v1/chats", chatsRouter);
 
 // Centralized error handler: turns unexpected exceptions into a 4xx/5xx JSON
 // body instead of an opaque connection drop (see spec section 8: edge cases).

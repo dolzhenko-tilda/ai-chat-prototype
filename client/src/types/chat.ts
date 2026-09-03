@@ -57,6 +57,13 @@ export type AppUIMessage = UIMessage<
   AppUITools
 >;
 
+/** A chat's summary, used for the chats history list (see `GET /api/v1/chats/list`). */
+export type Chat = {
+  id: string;
+  name: string;
+  updatedAt: string;
+};
+
 export type ChatStatus = "submitted" | "streaming" | "ready" | "error";
 
 /** Reasoning effort levels the UI lets the user pick, mirroring the AI SDK's

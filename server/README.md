@@ -33,7 +33,7 @@ npm run start   # node dist/index.js (после build)
 См. точный DDL в [`src/db/schema.sql`](src/db/schema.sql). Кратко:
 
 - **`tokens`** — `token`, `created_at`. Минтится `GET /api/v1/init` (см. ниже); MVP-у достаточно одного неявного пользователя, поэтому токен ни к чему не привязан — он лишь подтверждает, что клиент прошёл `/init`.
-- **`chats`** — `id`, `created_at`, `updated_at`. Строка создаётся implicitly при первом обращении к чату (первом `POST /messages/create`) — отдельного эндпоинта создания чата нет, как и допускает ТЗ.
+- **`chats`** — `id`, `name` (nullable — auto-titled from the first user message, or explicit via `POST /chats/rename`), `created_at`, `updated_at`. Строка создаётся implicitly при первом обращении к чату (первом `POST /messages/create`) — отдельного эндпоинта создания чата нет, как и допускает ТЗ.
 - **`messages`** — `id`, `chat_id`, `role`, `parts` (JSON-массив ai-sdk `UIMessage.parts`), `status` (`complete` | `streaming` | `aborted` | `error`), `seq` (порядок в чате), `created_at`, `rate`/`rated_at` (nullable — см. `POST /messages/rate`). Полю `status` соответствует `message.metadata.status`, а паре `rate`/`rated_at` — `message.metadata.rateInfo` в отдаваемом клиенту `UIMessage` — так фронт может показать бейдж "Stopped"/"Error" и подсветить оценку даже для сообщений, загруженных из истории.
 - **`generation_state`** — по одной строке на чат: `message_id` активной/последней генерации, `accumulated_chunks` (JSON-массив уже отправленных `UIMessageChunk`, нужен для resume), `is_active`, `abort_requested`.
 
@@ -153,6 +153,32 @@ npm run start   # node dist/index.js (после build)
 ```
 
 Оценка хранится в колонках `rate`/`rated_at` таблицы `messages` и возвращается клиенту как `message.metadata.rateInfo` в `GET /messages/list` — так фронт может подсветить нажатую кнопку (👍/👎) даже для сообщений, загруженных из истории.
+
+### `GET /api/v1/chats/list`
+
+Список всех чатов, отсортированный по `updated_at` (сначала недавно активные), с опциональной пагинацией через `beforeId`/`limit` (по аналогии с `GET /messages/list`, но т.к. список уже отсортирован от новых к старым, `beforeId` продолжает пагинацию *после* указанного чата в этом порядке — "следующая, более старая страница").
+
+```json
+{ "success": true, "result": { "chats": [ { "id": "...", "name": "...", "updatedAt": "2026-09-03T10:00:00.000Z" } ], "hasMore": false } }
+```
+
+`name` автоматически проставляется при первом сообщении пользователя в чате (обрезка первых ~60 символов, см. `deriveChatName` в `routes/messages.ts`) — если ещё не проставлено (т.е. в чате пока нет сообщений), возвращается `"New chat"`. Явное имя, заданное через `POST /chats/rename`, никогда не перезаписывается автоматически.
+
+### `POST /api/v1/chats/rename`
+
+Переименовывает чат. `404`, если `chatId` не существует.
+
+```json
+{ "token": "...", "chatId": "...", "name": "..." }
+```
+
+### `POST /api/v1/chats/delete`
+
+Удаляет чат вместе со всеми его сообщениями (`ON DELETE CASCADE` в схеме БД). `404`, если `chatId` не существует. Если у чата в момент удаления была активная генерация — она сначала отменяется (`cancelGeneration`), чтобы не пытаться дописать сообщение в уже удалённый чат.
+
+```json
+{ "token": "...", "chatId": "..." }
+```
 
 ## Формат SSE (протокол стриминга)
 

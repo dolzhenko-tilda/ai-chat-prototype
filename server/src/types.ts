@@ -29,6 +29,13 @@ export type RateResult = RateInfo & {
   messageId: string;
 };
 
+/** A chat's summary, used for the chats history list (see `GET /api/v1/chats/list`). */
+export type Chat = {
+  id: string;
+  name: string;
+  updatedAt: string;
+};
+
 /** Reasoning effort levels accepted from the client (see the AI SDK's
  * standardized `reasoning` call option used in generationService.ts).
  * "off" disables thinking entirely. */

@@ -27,6 +27,15 @@ import type {
 const reasoningEffortSchema = z.enum(REASONING_EFFORT_LEVELS).optional();
 const rateSchema = z.enum(["like", "dislike"]) satisfies z.ZodType<Rate>;
 
+const CHAT_NAME_MAX_LENGTH = 60;
+
+/** Derives an auto-title for a still-unnamed chat from its first user message (see `chatsRepository.setNameIfUnset`). */
+function deriveChatName(message: string): string {
+  const singleLine = message.replace(/\s+/g, " ").trim();
+  if (singleLine.length <= CHAT_NAME_MAX_LENGTH) return singleLine;
+  return `${singleLine.slice(0, CHAT_NAME_MAX_LENGTH - 1).trimEnd()}…`;
+}
+
 /**
  * `requireApproval`/`reasoningEffort` aren't part of `ai-chat-contracts.ts`
  * (that contract only documents `chatId`/`message`/`messageId`/`toolPart`),
@@ -134,6 +143,7 @@ messagesRouter.post("/create", (req, res) => {
   const { chatId, message, requireApproval, reasoningEffort } = parsed.data;
 
   chatsRepository.ensureExists(chatId);
+  chatsRepository.setNameIfUnset(chatId, deriveChatName(message));
   const history = messagesRepository.listByChat(chatId).map(toUIMessage);
 
   const userMessage: AppUIMessage = {

@@ -24,16 +24,20 @@ const schema = readFileSync(resolve(__dirname, "schema.sql"), "utf-8");
 db.exec(schema);
 
 /**
- * Lightweight migration for databases created before the `rate`/`rated_at`
- * columns existed (see `POST /api/v1/messages/rate`): `CREATE TABLE IF NOT
- * EXISTS` above is a no-op against an already-existing `messages` table, so
- * older on-disk databases need these columns added explicitly.
+ * Lightweight migrations for databases created before certain columns
+ * existed: `CREATE TABLE IF NOT EXISTS` above is a no-op against an
+ * already-existing table, so older on-disk databases need these columns
+ * added explicitly.
  */
-const messageColumns = db.prepare(`PRAGMA table_info(messages)`).all() as { name: string }[];
-const hasColumn = (name: string) => messageColumns.some((c) => c.name === name);
-if (!hasColumn("rate")) {
-  db.exec(`ALTER TABLE messages ADD COLUMN rate TEXT CHECK (rate IN ('like', 'dislike'))`);
+function ensureColumn(table: string, column: string, ddl: string) {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+  if (!columns.some((c) => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+  }
 }
-if (!hasColumn("rated_at")) {
-  db.exec(`ALTER TABLE messages ADD COLUMN rated_at INTEGER`);
-}
+
+// `rate`/`rated_at` (see `POST /api/v1/messages/rate`).
+ensureColumn("messages", "rate", `rate TEXT CHECK (rate IN ('like', 'dislike'))`);
+ensureColumn("messages", "rated_at", `rated_at INTEGER`);
+// `name` (see `POST /api/v1/chats/rename` and auto-titling in routes/messages.ts).
+ensureColumn("chats", "name", `name TEXT`);
