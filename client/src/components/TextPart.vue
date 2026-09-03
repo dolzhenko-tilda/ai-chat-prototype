@@ -21,6 +21,17 @@ interface SourceLink {
   title: string;
 }
 
+/**
+ * GitHub-style "alert" blockquotes: `> [!NOTE]` / `[!TIP]` / `[!IMPORTANT]` /
+ * `[!WARNING]` / `[!CAUTION]` as the first line of a blockquote (see the
+ * system prompt built in `generationService.ts`'s `buildSystemPrompt`).
+ * `marked` renders these as an ordinary `<blockquote><p>[!NOTE]<br>...`; the
+ * marker line is detected and stripped below, and the blockquote is swapped
+ * for a callout styled purely by color (left border + tinted background per
+ * type) - no icon or type label, matching the reference design.
+ */
+const ALERT_MARKER_PATTERN = /^\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(?:<br\s*\/?>\s*)?/i;
+
 interface RenderedParagraph {
   html: string;
   sources: SourceLink[];
@@ -109,6 +120,18 @@ function renderMarkdown(source: string): RenderedParagraph {
     figure.appendChild(caption);
 
     link.replaceWith(figure);
+  }
+  for (const blockquote of document.querySelectorAll("blockquote")) {
+    const firstParagraph = blockquote.querySelector("p");
+    const match = firstParagraph?.innerHTML.match(ALERT_MARKER_PATTERN);
+    if (!firstParagraph || !match) continue;
+    const type = match[1].toLowerCase();
+    firstParagraph.innerHTML = firstParagraph.innerHTML.slice(match[0].length);
+
+    const alert = document.createElement("div");
+    alert.className = `text-part__alert text-part__alert--${type}`;
+    alert.append(...blockquote.childNodes);
+    blockquote.replaceWith(alert);
   }
   return { html: document.body.innerHTML, sources };
 }
@@ -250,6 +273,34 @@ const sources = computed<SourceLink[]>(() => {
   padding: 0.1rem 0.85rem;
   border-left: 3px solid var(--border);
   color: var(--text-muted);
+}
+.text-part__markdown :deep(.text-part__alert) {
+  --alert-color: var(--text-muted);
+  margin: 0.5em 0;
+  padding: 0.75rem 1rem;
+  border-left: 3px solid var(--alert-color);
+  background: color-mix(in srgb, var(--alert-color) 12%, transparent);
+}
+.text-part__markdown :deep(.text-part__alert--note) {
+  --alert-color: #4493f8;
+}
+.text-part__markdown :deep(.text-part__alert--tip) {
+  --alert-color: #3fb950;
+}
+.text-part__markdown :deep(.text-part__alert--important) {
+  --alert-color: #986ee2;
+}
+.text-part__markdown :deep(.text-part__alert--warning) {
+  --alert-color: #d29922;
+}
+.text-part__markdown :deep(.text-part__alert--caution) {
+  --alert-color: #e5534b;
+}
+.text-part__markdown :deep(.text-part__alert > :first-child) {
+  margin-top: 0;
+}
+.text-part__markdown :deep(.text-part__alert > :last-child) {
+  margin-bottom: 0;
 }
 .text-part__markdown :deep(code) {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
