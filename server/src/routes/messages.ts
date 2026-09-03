@@ -1,5 +1,6 @@
 import { Router } from "express";
 import type { Response } from "express";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { chatsRepository } from "../repositories/chatsRepository.js";
 import { messagesRepository } from "../repositories/messagesRepository.js";
@@ -147,7 +148,13 @@ messagesRouter.get("/list", (req, res) => {
 messagesRouter.post("/create", (req, res) => {
   const bodySchema = z
     .object({
-      chatId: z.string().min(1),
+      // Absent for a brand-new chat the client hasn't been assigned an id
+      // for yet (see `useChatId.ts`'s `newChat()`): chatId is only ever
+      // minted here, on the server, never by the client. The id we pick
+      // below is echoed back to the client on the assistant message's
+      // `start` chunk (see `messageMetadata` in `runGeneration`), which is
+      // how the client learns/adopts it.
+      chatId: z.string().min(1).optional(),
       message: z.string().min(1),
       metadata: createMessageMetadataSchema.optional(),
     })
@@ -157,10 +164,12 @@ messagesRouter.post("/create", (req, res) => {
     sendError(res, 400, "Invalid body", parsed.error.issues[0]?.message);
     return;
   }
-  const { chatId, message, requireApproval, reasoningEffort } = parsed.data;
+  const { message, requireApproval, reasoningEffort } = parsed.data;
   const context = parsed.data.metadata?.context;
 
-  chatsRepository.ensureExists(chatId);
+  const chatId = parsed.data.chatId
+    ? chatsRepository.ensureExists(parsed.data.chatId).id
+    : chatsRepository.ensureExists(randomUUID()).id;
   chatsRepository.setNameIfUnset(chatId, deriveChatName(message));
   const history = messagesRepository.listByChat(chatId).map(toUIMessage);
 

@@ -78,6 +78,10 @@ type UiMessageMetadata = {
 type MessageMetadata = Partial<UiMessageMetadata> & {
   status: MessageStatus;
   createdAt: string;
+  /** Чат, которому принадлежит сообщение. Для `/messages/create`, вызванного
+   * без `chatId` (новый чат), это единственный способ клиенту узнать id,
+   * присвоенный сервером — см. `MessageChunk`'s "start". */
+  chatId: string;
   rateInfo: RateInfo;
 };
 
@@ -120,7 +124,14 @@ type Message = {
  * Используется как тип элемента ReadableStream<MessageChunk> во всех SSE-эндпоинтах.
  */
 type MessageChunk =
-  | { type: "start"; messageId?: string }
+  | {
+      type: "start";
+      messageId?: string;
+      /** Присутствует на первом чанке ответа: несёт `chatId` (в т.ч. только
+       * что сгенерированный сервером для нового чата), `status: "streaming"`
+       * и `createdAt` ассистентского сообщения (см. `MessageMetadata`). */
+      messageMetadata?: Partial<MessageMetadata>;
+    }
   | { type: "start-step" }
   | { type: "text-start"; id: string }
   | { type: "text-delta"; id: string; delta: string }
@@ -194,9 +205,13 @@ type GetMessagesResponse = ServerResponse<{
 // Отправка нового сообщения пользователя.
 // message - текст нового сообщения пользователя для отправки в чат.
 // Клиент не пересылает историю. Ответ — SSE-поток чанков ассистента.
+// chatId не передаётся для нового чата (см. useChatId.ts's newChat()) — сервер
+// сам генерирует id нового чата и возвращает его в metadata "start"-чанка
+// ассистентского сообщения (см. MessageChunk/MessageMetadata ниже); клиент
+// подхватывает его оттуда.
 
 type CreateMessageRequest = ClientRequest<{
-  chatId: string;
+  chatId?: string;
   message: string;
   metadata?: UiMessageMetadata;
 }>;

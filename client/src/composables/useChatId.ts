@@ -3,10 +3,6 @@ import { ensureAuth } from "../services/api";
 
 const STORAGE_KEY = "ai-chat-prototype:chatId";
 
-function generateChatId(): string {
-  return crypto.randomUUID();
-}
-
 /**
  * Manages the client's current chatId, bootstrapped via the mock-auth
  * `init()` flow (see `ai-chat-contracts.ts`'s `GET /api/v1/init`):
@@ -17,9 +13,23 @@ function generateChatId(): string {
  *   persisted to localStorage.
  * `chatId` starts out empty and only becomes truthy once this resolves -
  * `useAppChat` treats an empty id as "not ready yet" and skips loading.
- * "New chat" simply swaps in a fresh, locally generated id and persists it -
- * the server creates the chat row implicitly on first use (see
- * server/README.md).
+ *
+ * chatId is *never* generated on the client - only the server is allowed to
+ * mint one (see `ai-chat-contracts.ts`'s `POST /messages/create`). "New
+ * chat" therefore just clears the current id; the next message is sent
+ * without a `chatId`, and the server creates the chat row and picks its id.
+ *
+ * Crucially, this `chatId` ref is *only* ever written to by explicit user
+ * actions (`newChat`/`openChat`) - never by `useAppChat` picking up the
+ * server-minted id for a chat that's still being actively used. That's
+ * because it's also what `useAppChat` feeds into `@ai-sdk/vue`'s `useChat`
+ * as its `id` config, and *any* change to that (even to the "same" chat,
+ * just filling in an id that used to be empty) makes `useChat` recreate its
+ * internal chat instance and reset its (shared!) `messages`/`status` state -
+ * catastrophic if done while a generation/tool-call exchange is still
+ * in-flight for that instance (see `useAppChat.ts`'s `getChatId`/
+ * `persistChatId` for how the resolved id is actually used/persisted
+ * instead, without ever touching this ref mid-conversation).
  */
 export function useChatId() {
   const chatId = ref<string>("");
@@ -37,18 +47,27 @@ export function useChatId() {
       isInitializing.value = false;
     });
 
-  function newChat(): string {
-    const id = generateChatId();
-    chatId.value = id;
-    localStorage.setItem(STORAGE_KEY, id);
-    return id;
+  /** Clears the current chat id; the server mints a fresh one on the next sent message. */
+  function newChat(): void {
+    chatId.value = "";
+    localStorage.removeItem(STORAGE_KEY);
   }
 
-  /** Switches to an existing chat (e.g. one picked from the history list) and persists it. */
+  /** Switches to a chat (e.g. one picked from the history list) and persists it. */
   function openChat(id: string): void {
     chatId.value = id;
     localStorage.setItem(STORAGE_KEY, id);
   }
 
-  return { chatId, newChat, openChat, isInitializing, initError };
+  /**
+   * Persists a chatId to localStorage *without* touching the reactive
+   * `chatId` ref - used by `useAppChat.ts` to remember an id the server just
+   * minted for the still-open new chat (so a page reload picks it up via
+   * `ensureAuth` above), without disturbing the live `useChat` instance.
+   */
+  function persistChatId(id: string): void {
+    localStorage.setItem(STORAGE_KEY, id);
+  }
+
+  return { chatId, newChat, openChat, persistChatId, isInitializing, initError };
 }

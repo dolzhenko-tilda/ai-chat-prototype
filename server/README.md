@@ -77,6 +77,8 @@ npm run start   # node dist/index.js (после build)
 }
 ```
 
+`chatId` необязателен: если чат ещё не создан (пользователь нажал "Новый чат" — см. `useChatId.ts`'s `newChat()`), клиент отправляет запрос вообще без `chatId`, и сервер сам генерирует новый id (chatId **никогда** не генерируется на клиенте). Этот id попадает в БД и эхом возвращается клиенту в `messageMetadata` `start`-чанка ответа ассистента (см. "Формат SSE" ниже) — так фронт узнаёт/усваивает его.
+
 `requireApproval`/`reasoningEffort` — необязательное расширение сверх `ai-chat-contracts.ts` (нужны существующему UI настроек, см. `useChatSettings.ts`); любой клиент, следующий только документированному контракту, продолжит работать и без них. `requireApproval` (по умолчанию `false`): если `true`, вызовы "чувствительных" тулов (см. ниже про tool approval) потребуют явного подтверждения пользователя, прежде чем выполнятся. `reasoningEffort` — опциональный уровень "размышлений" модели: `"off" | "minimal" | "low" | "medium" | "high" | "xhigh"` (по умолчанию `"medium"`). Прокидывается в `streamText` как стандартизированная опция `reasoning` (`"off"` маппится на `"none"`, полностью отключая thinking у моделей, которые это поддерживают).
 
 Мок-источники (см. `server/src/services/mockSources.ts`) передаются модели через системный промпт вместе с инструкцией цитировать их как можно чаще; саму ссылку в формате `[title](url "source:title")` вставляет в markdown-ответ сама LLM, а не бэкенд. Фронт стилизует такие ссылки по CSS-селектору `a[title^="source:"]`.
@@ -187,6 +189,8 @@ npm run start   # node dist/index.js (после build)
 Используется `ai-sdk` **UI Message Stream** протокол (data stream protocol), совместимый с `parseJsonEventStream` / `DefaultChatTransport` из пакета `ai`: каждое SSE-событие — это `data: <JSON>\n\n`, где JSON — один `UIMessageChunk` (`{"type":"text-delta",...}`, `{"type":"tool-input-available",...}`, `{"type":"error",...}` и т.д.), поток завершается кадром `data: [DONE]\n\n`. Заголовки ответа: `Content-Type: text/event-stream`, `Cache-Control: no-cache`, `Connection: keep-alive`, `x-vercel-ai-ui-message-stream: v1`.
 
 Сервер собирает эти чанки через `toUIMessageStream()` (стандалон-функция `ai` v7) поверх `streamText().stream`, поэтому набор типов чанков — все, что поддерживает установленная версия `ai`: `start`, `start-step`, `text-start/delta/end`, `reasoning-start/delta/end`, `tool-input-start/delta/available`, `tool-output-available/error`, `tool-approval-request/response`, `finish-step`, `finish`, `error`, `abort`, плюс кастомный `data-error` (см. ниже).
+
+Самый первый чанк (`start`) несёт `messageMetadata` с `chatId`/`status: "streaming"`/`createdAt` (см. `generationService.ts`'s `messageMetadata`) — это единственный способ клиенту узнать `chatId`, если сообщение было отправлено на `/messages/create` без него (новый чат, см. выше).
 
 Ошибки, которые прерывают генерацию целиком (сеть, исключение в `streamText`), дополнительно оборачиваются в кастомную data-часть `{"type":"data-error","data":{"message":"..."}}`, чтобы клиент мог отрисовать их как постоянную часть сообщения (а не только как временный баннер).
 

@@ -5,6 +5,18 @@ import type { AppUIMessage, ReasoningEffort } from "../types/chat";
 
 export interface ServerChatTransportOptions {
   baseUrl: string;
+  /**
+   * Returns the chatId that should actually be used for every request,
+   * overriding whatever (possibly stale/empty) `chatId` `@ai-sdk/vue`'s
+   * `useChat` itself passes in. Necessary because `useChat`'s internal chat
+   * instance freezes its `id` at construction time and reuses that same
+   * instance (and thus the same frozen id) for a whole exchange, including
+   * any automatic tool-call/approval continuations - so if a message is
+   * first sent with no `chatId` (new chat, see `useChatId.ts`), the server
+   * mints one, but that instance never learns it. See `useAppChat.ts`'s
+   * `effectiveChatId`, which this getter is wired to.
+   */
+  getChatId: () => string;
   /** Whether tool calls to sensitive server tools should require user approval. */
   requireApproval: () => boolean;
   /** Reasoning effort level to send with each request (see `ReasoningEffort`). */
@@ -94,13 +106,16 @@ export class ServerChatTransport implements ChatTransport<AppUIMessage> {
   > {
     const requireApproval = this.options.requireApproval();
     const reasoningEffort = this.options.reasoningEffort();
+    // Prefer our own authoritative getter over ai-sdk's `chatId` (see
+    // `getChatId`'s doc comment) - falls back to it only as a safety net.
+    const effectiveChatId = this.options.getChatId() || chatId;
 
     if (trigger === "regenerate-message") {
       const targetId = messageId ?? messages[messages.length - 1]?.id;
       if (!targetId) throw new Error("regenerate-message requires a messageId");
       return this.post(
         "/api/v1/messages/regenerate",
-        { chatId, messageId: targetId, requireApproval, reasoningEffort },
+        { chatId: effectiveChatId, messageId: targetId, requireApproval, reasoningEffort },
         abortSignal
       );
     }
@@ -119,7 +134,7 @@ export class ServerChatTransport implements ChatTransport<AppUIMessage> {
       if (!toolPart) throw new Error("No tool part to continue with");
       return this.post(
         "/api/v1/messages/continue",
-        { chatId, messageId: last.id, toolPart, requireApproval, reasoningEffort },
+        { chatId: effectiveChatId, messageId: last.id, toolPart, requireApproval, reasoningEffort },
         abortSignal
       );
     }
@@ -128,10 +143,14 @@ export class ServerChatTransport implements ChatTransport<AppUIMessage> {
     // message is sent (as plain text) - never the full history (server
     // keeps it in SQLite). `context` (e.g. `pageUrl`) rides along as
     // `metadata` per `ai-chat-contracts.ts`'s `CreateMessageRequest`.
+    // `effectiveChatId` is falsy only for the very first message of a brand
+    // new chat (see `useChatId.ts`'s `newChat()`) - it's omitted rather than
+    // sent as `""` so the server mints one itself; only the server is
+    // allowed to generate a chatId.
     return this.post(
       "/api/v1/messages/create",
       {
-        chatId,
+        ...(effectiveChatId ? { chatId: effectiveChatId } : {}),
         message: extractText(last),
         requireApproval,
         reasoningEffort,
@@ -147,7 +166,8 @@ export class ServerChatTransport implements ChatTransport<AppUIMessage> {
   }: Parameters<ChatTransport<AppUIMessage>["reconnectToStream"]>[0] & ChatRequestOptions): Promise<
     ReadableStream<UIMessageChunk> | null
   > {
-    const params = new URLSearchParams({ token: api.getToken() ?? "", chatId });
+    const effectiveChatId = this.options.getChatId() || chatId;
+    const params = new URLSearchParams({ token: api.getToken() ?? "", chatId: effectiveChatId });
     const res = await fetch(`${this.options.baseUrl}/api/v1/messages/resume?${params}`, {
       method: "GET",
       signal: abortSignal,

@@ -9,10 +9,11 @@ import MessageList from "./MessageList.vue";
 import ChatInput from "./ChatInput.vue";
 import ChatHistory from "./ChatHistory.vue";
 
-const { chatId, newChat, openChat, isInitializing, initError } = useChatId();
+const { chatId, newChat, openChat, persistChatId, isInitializing, initError } = useChatId();
 const { requireApproval, reasoningEffort } = useChatSettings();
-const { chat, isLoadingHistory, historyError, reload } = useAppChat(
+const { chat, isLoadingHistory, historyError, effectiveChatId, reload } = useAppChat(
   chatId,
+  persistChatId,
   requireApproval,
   reasoningEffort,
 );
@@ -32,8 +33,9 @@ const messages = computed(() => [...chat.messages.value]);
 
 async function onSend(text: string) {
   // Guards against the brief window before `useChatId`'s init/auth call
-  // resolves (see the "Connecting…" notice below).
-  if (!chatId.value) return;
+  // resolves (see the "Connecting…" notice below). A brand new chat (empty
+  // `chatId`) is fine to send from - the server mints its id on this call.
+  if (isInitializing.value) return;
   // Stamp the optimistic local message with its creation time right away, so
   // it doesn't have to wait for a history reload to show/group correctly -
   // the server persists the same message with its own `createdAt` anyway.
@@ -46,7 +48,7 @@ async function onSend(text: string) {
     metadata: {
       status: "complete",
       createdAt: new Date().toISOString(),
-      chatId: chatId.value,
+      chatId: effectiveChatId.value,
       context: { pageUrl: window.location.href },
     },
   });
@@ -54,7 +56,7 @@ async function onSend(text: string) {
 
 async function stopActiveGeneration() {
   // Section 7.4: abort on the client AND tell the server to stop the LLM call.
-  await Promise.all([chat.stop(), api.cancelGeneration(chatId.value).catch(() => {})]);
+  await Promise.all([chat.stop(), api.cancelGeneration(effectiveChatId.value).catch(() => {})]);
 }
 
 async function onStop() {
@@ -74,7 +76,7 @@ async function onDelete(messageId: string) {
     // server to delete.
     await chat.stop();
   }
-  await api.deleteMessage(chatId.value, messageId);
+  await api.deleteMessage(effectiveChatId.value, messageId);
   chat.messages.value = chat.messages.value.filter((m) => m.id !== messageId);
 }
 
@@ -91,7 +93,7 @@ async function onDeny(approvalId: string) {
 }
 
 async function onRate(messageId: string, rate: Rate) {
-  const {messageId: _, ...rateInfo} = await api.rateMessage(chatId.value, messageId, rate);
+  const {messageId: _, ...rateInfo} = await api.rateMessage(effectiveChatId.value, messageId, rate);
   // Same reference-swap pattern as `onDelete`: assign a new array so the
   // `messages` computed (and MessageList's prop-change watcher) picks it up.
   chat.messages.value = chat.messages.value.map((m) =>
@@ -101,7 +103,7 @@ async function onRate(messageId: string, rate: Rate) {
           metadata: {
             status: m.metadata?.status ?? "complete",
             createdAt: m.metadata?.createdAt ?? new Date().toISOString(),
-            chatId: m.metadata?.chatId ?? chatId.value,
+            chatId: m.metadata?.chatId ?? effectiveChatId.value,
             rateInfo,
           },
         }
@@ -131,7 +133,16 @@ async function onSelectChatFromHistory(id: string) {
     await onNewChat();
     return;
   }
-  if (id !== chatId.value && (chat.status.value === "streaming" || chat.status.value === "submitted")) {
+  // Re-selecting the chat that's already effectively open (e.g. a brand new
+  // chat whose server-minted id has since appeared in the history list) is a
+  // no-op: calling `openChat` here would still write that id into `chatId`,
+  // which - see `useAppChat.ts`'s big comment - would recreate `useChat`'s
+  // internal instance and could wipe an in-flight generation for no reason.
+  if (id === effectiveChatId.value) {
+    showHistory.value = false;
+    return;
+  }
+  if (chat.status.value === "streaming" || chat.status.value === "submitted") {
     await stopActiveGeneration();
   }
   openChat(id);
@@ -153,7 +164,7 @@ async function onSelectChatFromHistory(id: string) {
 
     <ChatHistory
       v-if="showHistory"
-      :active-chat-id="chatId"
+      :active-chat-id="effectiveChatId"
       @back="showHistory = false"
       @select="onSelectChatFromHistory"
     />

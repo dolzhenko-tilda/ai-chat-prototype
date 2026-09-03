@@ -112,7 +112,7 @@ npm run typecheck   # tsc --noEmit / vue-tsc --noEmit для обоих паке
 - **Части сообщений.** Текст, reasoning, tool-call/tool-result и ошибки рендерятся как визуально разные блоки (см. `client/src/components/*Part.vue`).
 - **Действия над сообщениями.** Copy (Clipboard API, без запроса на сервер), Delete (`POST /messages/delete`), Regenerate (`POST /messages/regenerate`).
 - **Стоп.** Кнопка "Стоп" одновременно прерывает `fetch` на клиенте (`AbortController`) и шлёт `POST /messages/cancel`, чтобы сервер остановил генерацию у LLM.
-- **Новый чат.** Генерирует новый `chatId` (uuid) и сохраняет в `localStorage` (токен при этом переиспользуется); сервер создаёт запись чата implicitly при первом обращении.
+- **Новый чат.** Очищает текущий `chatId` (в т.ч. в `localStorage`) — сервер сам генерирует id при отправке первого сообщения нового чата (chatId никогда не генерируется на клиенте) и возвращает его клиенту в `messageMetadata` `start`-чанка ответа ассистента; клиент подхватывает id оттуда.
 - **Инструменты.** Серверные тулы `calculate` и `getCurrentTime` (выполняются на сервере), клиентский тул `logToConsole` (выполняется в браузере, результат отправляется обратно в модель через `POST /messages/continue`).
 - **Tool Approval (доп. фича).** В поле ввода есть чекбокс "Require approval for sensitive tools" — при включении вызовы `calculate` требуют явного одобрения пользователя (Approve/Deny) прежде чем выполнятся; реализовано через `toolApproval` (`streamText`) на сервере и `addToolApprovalResponse` на клиенте (ответ уходит на `POST /messages/continue`).
 - **Оценка ответа.** У каждого сообщения ассистента — кнопки 👍/👎 (`POST /messages/rate`); текущая оценка хранится в БД и подсвечивается даже после перезагрузки истории.
