@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS messages (
   seq INTEGER NOT NULL, -- preserves message order within a chat
   created_at INTEGER NOT NULL,
   rate TEXT CHECK (rate IN ('like', 'dislike')), -- NULL when unrated (see POST /api/v1/messages/rate)
-  rated_at INTEGER
+  rated_at INTEGER,
+  context TEXT -- JSON `Context` (e.g. { pageUrl }) the client sent alongside a user message, if any
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_chat_seq ON messages (chat_id, seq);

@@ -45,6 +45,14 @@ export type RateResult = RateInfo & {
   messageId: string;
 };
 
+/** Context about where the chat is embedded (e.g. the page the user was on
+ * when they sent a message) - see `ai-chat-contracts.ts`'s
+ * `Context`/`UiMessageMetadata`. Attached to an outgoing user message so the
+ * server can feed it into the model's system prompt for that generation. */
+export type Context = {
+  pageUrl: string;
+};
+
 export type AppUIMessageMetadata = {
   status: MessageStatus;
   /** Present only once the (assistant) message has been rated. */
@@ -57,6 +65,8 @@ export type AppUIMessageMetadata = {
    * before the first streamed chunk populates it - see
    * `AppUIMessage["metadata"]`/ai-sdk's `createStreamingUIMessageState`). */
   chatId: string;
+  /** Present on a user message sent along with page context (see `Context`). */
+  context?: Context;
 };
 
 export type AppUIMessage = UIMessage<

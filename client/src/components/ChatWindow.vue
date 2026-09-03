@@ -37,9 +37,18 @@ async function onSend(text: string) {
   // Stamp the optimistic local message with its creation time right away, so
   // it doesn't have to wait for a history reload to show/group correctly -
   // the server persists the same message with its own `createdAt` anyway.
+  // `context.pageUrl` tells the server what page the user was on when they
+  // sent this message (see `ai-chat-contracts.ts`'s `Context`); the
+  // transport forwards it to `POST /messages/create`, which feeds it into
+  // the model's system prompt for this generation.
   await chat.sendMessage({
     text,
-    metadata: { status: "complete", createdAt: new Date().toISOString(), chatId: chatId.value },
+    metadata: {
+      status: "complete",
+      createdAt: new Date().toISOString(),
+      chatId: chatId.value,
+      context: { pageUrl: window.location.href },
+    },
   });
 }
 

@@ -48,6 +48,16 @@ const genOptionsSchema = z.object({
   reasoningEffort: reasoningEffortSchema,
 });
 
+// `ai-chat-contracts.ts`'s `Context`/`UiMessageMetadata` - optional page
+// context the client can send alongside a new user message (see
+// `POST /messages/create`).
+const contextSchema = z.object({
+  pageUrl: z.string(),
+});
+const createMessageMetadataSchema = z.object({
+  context: contextSchema.optional(),
+});
+
 // Loosely validates the shape of a single UIMessage tool part sent by the
 // client for `/continue`. Left permissive (`.passthrough()`) because ai-sdk's
 // tool part union is large/evolving and, for the approval-gated tool flow,
@@ -79,6 +89,7 @@ function toUIMessage(row: MessageRow): AppUIMessage {
       rateInfo,
       createdAt: new Date(row.createdAt).toISOString(),
       chatId: row.chatId,
+      context: row.context,
     },
   };
 }
@@ -138,6 +149,7 @@ messagesRouter.post("/create", (req, res) => {
     .object({
       chatId: z.string().min(1),
       message: z.string().min(1),
+      metadata: createMessageMetadataSchema.optional(),
     })
     .merge(genOptionsSchema);
   const parsed = bodySchema.safeParse(req.body);
@@ -146,6 +158,7 @@ messagesRouter.post("/create", (req, res) => {
     return;
   }
   const { chatId, message, requireApproval, reasoningEffort } = parsed.data;
+  const context = parsed.data.metadata?.context;
 
   chatsRepository.ensureExists(chatId);
   chatsRepository.setNameIfUnset(chatId, deriveChatName(message));
@@ -163,6 +176,7 @@ messagesRouter.post("/create", (req, res) => {
     parts: userMessage.parts,
     status: "complete",
     createdAt: Date.now(),
+    context,
   });
   chatsRepository.touch(chatId);
 
@@ -173,6 +187,7 @@ messagesRouter.post("/create", (req, res) => {
     conversation: [...history, userMessage],
     requireApproval: requireApproval ?? false,
     reasoningEffort,
+    context,
   });
   streamGenerationToResponse(res, gen);
 });

@@ -1,5 +1,5 @@
 import { db } from "../db/index.js";
-import type { AppUIMessage, MessageRow, MessageStatus, Rate } from "../types.js";
+import type { AppUIMessage, Context, MessageRow, MessageStatus, Rate } from "../types.js";
 
 interface RawRow {
   id: string;
@@ -11,6 +11,7 @@ interface RawRow {
   created_at: number;
   rate: Rate | null;
   rated_at: number | null;
+  context: string | null;
 }
 
 function toMessageRow(row: RawRow): MessageRow {
@@ -24,22 +25,23 @@ function toMessageRow(row: RawRow): MessageRow {
     createdAt: row.created_at,
     rate: row.rate ?? undefined,
     ratedAt: row.rated_at ?? undefined,
+    context: row.context ? (JSON.parse(row.context) as Context) : undefined,
   };
 }
 
 const insertStmt = db.prepare(
-  `INSERT INTO messages (id, chat_id, role, parts, status, seq, created_at)
-   VALUES (@id, @chatId, @role, @parts, @status, @seq, @createdAt)`
+  `INSERT INTO messages (id, chat_id, role, parts, status, seq, created_at, context)
+   VALUES (@id, @chatId, @role, @parts, @status, @seq, @createdAt, @context)`
 );
 const updateStmt = db.prepare(
   `UPDATE messages SET parts = @parts, status = @status WHERE id = @id`
 );
 const rateStmt = db.prepare(`UPDATE messages SET rate = @rate, rated_at = @ratedAt WHERE id = @id`);
 const listByChatStmt = db.prepare(
-  `SELECT id, chat_id, role, parts, status, seq, created_at, rate, rated_at FROM messages WHERE chat_id = ? ORDER BY seq ASC`
+  `SELECT id, chat_id, role, parts, status, seq, created_at, rate, rated_at, context FROM messages WHERE chat_id = ? ORDER BY seq ASC`
 );
 const getByIdStmt = db.prepare(
-  `SELECT id, chat_id, role, parts, status, seq, created_at, rate, rated_at FROM messages WHERE id = ?`
+  `SELECT id, chat_id, role, parts, status, seq, created_at, rate, rated_at, context FROM messages WHERE id = ?`
 );
 const deleteStmt = db.prepare(`DELETE FROM messages WHERE id = ?`);
 const maxSeqStmt = db.prepare(`SELECT COALESCE(MAX(seq), -1) as maxSeq FROM messages WHERE chat_id = ?`);
@@ -69,6 +71,7 @@ export const messagesRepository = {
       status: row.status,
       seq,
       createdAt: row.createdAt,
+      context: row.context ? JSON.stringify(row.context) : null,
     });
     return { ...row, seq };
   },

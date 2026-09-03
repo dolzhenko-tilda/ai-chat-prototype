@@ -126,10 +126,17 @@ export class ServerChatTransport implements ChatTransport<AppUIMessage> {
 
     // Normal case: a brand new user message. Per spec, only this single
     // message is sent (as plain text) - never the full history (server
-    // keeps it in SQLite).
+    // keeps it in SQLite). `context` (e.g. `pageUrl`) rides along as
+    // `metadata` per `ai-chat-contracts.ts`'s `CreateMessageRequest`.
     return this.post(
       "/api/v1/messages/create",
-      { chatId, message: extractText(last), requireApproval, reasoningEffort },
+      {
+        chatId,
+        message: extractText(last),
+        requireApproval,
+        reasoningEffort,
+        ...(last.metadata?.context ? { metadata: { context: last.metadata.context } } : {}),
+      },
       abortSignal
     );
   }

@@ -29,6 +29,15 @@ export type RateResult = RateInfo & {
   messageId: string;
 };
 
+/** Client-supplied context about where the chat is embedded (e.g. the page
+ * the user was on when they sent a message) - see `ai-chat-contracts.ts`'s
+ * `Context`/`UiMessageMetadata`. Sent by the client on `POST
+ * /messages/create` and fed into the system prompt for that generation so
+ * the model knows what page the user is looking at. */
+export type Context = {
+  pageUrl: string;
+};
+
 /** A chat's summary, used for the chats history list (see `GET /api/v1/chats/list`). */
 export type Chat = {
   id: string;
@@ -63,6 +72,11 @@ export type AppUIMessageMetadata = {
    * before the first streamed chunk populates it - see
    * `AppUIMessage["metadata"]`/ai-sdk's `createStreamingUIMessageState`). */
   chatId: string;
+  /** Present on a user message that was sent along with page context (see
+   * `Context`). Persisted so it survives a history reload, though it's
+   * only actually used (fed into the system prompt) for the generation
+   * triggered by that same message. */
+  context?: Context;
 };
 
 /** The concrete UIMessage shape used across the whole server (matches the client). */
@@ -85,4 +99,6 @@ export interface MessageRow {
   createdAt: number;
   rate?: Rate;
   ratedAt?: number;
+  /** See `AppUIMessageMetadata.context`; only ever set on user messages. */
+  context?: Context;
 }

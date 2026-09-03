@@ -39,5 +39,7 @@ function ensureColumn(table: string, column: string, ddl: string) {
 // `rate`/`rated_at` (see `POST /api/v1/messages/rate`).
 ensureColumn("messages", "rate", `rate TEXT CHECK (rate IN ('like', 'dislike'))`);
 ensureColumn("messages", "rated_at", `rated_at INTEGER`);
+// `context` (see `POST /api/v1/messages/create`'s optional `metadata.context`).
+ensureColumn("messages", "context", `context TEXT`);
 // `name` (see `POST /api/v1/chats/rename` and auto-titling in routes/messages.ts).
 ensureColumn("chats", "name", `name TEXT`);
