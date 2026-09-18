@@ -39,7 +39,7 @@ function deriveChatName(message: string): string {
 
 /**
  * `requireApproval`/`reasoningEffort` aren't part of `ai-chat-contracts.ts`
- * (that contract only documents `chatId`/`message`/`messageId`/`toolPart`),
+ * (that contract only documents `chatUid`/`message`/`messageUid`/`toolPart`),
  * but they drive the existing settings UI (`useChatSettings.ts`) and are
  * accepted here as an additive extension - both are optional, so any client
  * following the documented contract still works unmodified.
@@ -89,7 +89,7 @@ function toUIMessage(row: MessageRow): AppUIMessage {
       status: row.status,
       rateInfo,
       createdAt: new Date(row.createdAt).toISOString(),
-      chatId: row.chatId,
+      chatUid: row.chatId,
       context: row.context,
     },
   };
@@ -117,8 +117,8 @@ function streamGenerationToResponse(
 /** GET /api/v1/messages/list - see `GetMessagesRequest`/`GetMessagesResponse`. */
 messagesRouter.get("/list", (req, res) => {
   const querySchema = z.object({
-    chatId: z.string().min(1),
-    beforeId: z.string().optional(),
+    chatUid: z.string().min(1),
+    beforeUid: z.string().optional(),
     limit: z.coerce.number().int().positive().optional(),
   });
   const parsed = querySchema.safeParse(req.query);
@@ -126,13 +126,13 @@ messagesRouter.get("/list", (req, res) => {
     sendError(res, 400, "Invalid query", parsed.error.issues[0]?.message);
     return;
   }
-  const { chatId, beforeId, limit } = parsed.data;
+  const { chatUid, beforeUid, limit } = parsed.data;
 
   // Per the contract: "если чата ещё нет — возвращает пустой массив", so
   // unlike the other endpoints we don't implicitly create the chat here.
-  let rows = messagesRepository.listByChat(chatId);
-  if (beforeId) {
-    const idx = rows.findIndex((m) => m.id === beforeId);
+  let rows = messagesRepository.listByChat(chatUid);
+  if (beforeUid) {
+    const idx = rows.findIndex((m) => m.id === beforeUid);
     rows = idx === -1 ? [] : rows.slice(0, idx);
   }
   let hasMore = false;
@@ -141,7 +141,7 @@ messagesRouter.get("/list", (req, res) => {
     rows = rows.slice(rows.length - limit);
   }
 
-  sendResult(res, { chatId, messages: rows.map(toUIMessage), hasMore });
+  sendResult(res, { chatUid, messages: rows.map(toUIMessage), hasMore });
 });
 
 /** POST /api/v1/messages/create - see `CreateMessageRequest`/`CreateMessageResponse`. */
@@ -149,12 +149,12 @@ messagesRouter.post("/create", (req, res) => {
   const bodySchema = z
     .object({
       // Absent for a brand-new chat the client hasn't been assigned an id
-      // for yet (see `useChatId.ts`'s `newChat()`): chatId is only ever
+      // for yet (see `useChatId.ts`'s `newChat()`): chatUid is only ever
       // minted here, on the server, never by the client. The id we pick
       // below is echoed back to the client on the assistant message's
       // `start` chunk (see `messageMetadata` in `runGeneration`), which is
       // how the client learns/adopts it.
-      chatId: z.string().min(1).optional(),
+      chatUid: z.string().min(1).optional(),
       message: z.string().min(1),
       metadata: createMessageMetadataSchema.optional(),
     })
@@ -167,11 +167,11 @@ messagesRouter.post("/create", (req, res) => {
   const { message, requireApproval, reasoningEffort } = parsed.data;
   const context = parsed.data.metadata?.context;
 
-  const chatId = parsed.data.chatId
-    ? chatsRepository.ensureExists(parsed.data.chatId).id
+  const chatUid = parsed.data.chatUid
+    ? chatsRepository.ensureExists(parsed.data.chatUid).id
     : chatsRepository.ensureExists(randomUUID()).id;
-  chatsRepository.setNameIfUnset(chatId, deriveChatName(message));
-  const history = messagesRepository.listByChat(chatId).map(toUIMessage);
+  chatsRepository.setNameIfUnset(chatUid, deriveChatName(message));
+  const history = messagesRepository.listByChat(chatUid).map(toUIMessage);
 
   const userMessage: AppUIMessage = {
     id: newMessageId(),
@@ -180,18 +180,18 @@ messagesRouter.post("/create", (req, res) => {
   };
   messagesRepository.insert({
     id: userMessage.id,
-    chatId,
+    chatId: chatUid,
     role: "user",
     parts: userMessage.parts,
     status: "complete",
     createdAt: Date.now(),
     context,
   });
-  chatsRepository.touch(chatId);
+  chatsRepository.touch(chatUid);
 
   const assistantMessageId = newMessageId();
   const gen = runGeneration({
-    chatId,
+    chatUid,
     assistantMessageId,
     conversation: [...history, userMessage],
     requireApproval: requireApproval ?? false,
@@ -203,7 +203,7 @@ messagesRouter.post("/create", (req, res) => {
 
 /**
  * POST /api/v1/messages/regenerate - see `RegenerateMessageRequest`/
- * `RegenerateMessageResponse`. `messageId` must be an assistant message; the
+ * `RegenerateMessageResponse`. `messageUid` must be an assistant message; the
  * server takes all history strictly before it (not including it), deletes it
  * and any messages that came after it, and streams a brand new assistant
  * message.
@@ -211,8 +211,8 @@ messagesRouter.post("/create", (req, res) => {
 messagesRouter.post("/regenerate", (req, res) => {
   const bodySchema = z
     .object({
-      chatId: z.string().min(1),
-      messageId: z.string().min(1),
+      chatUid: z.string().min(1),
+      messageUid: z.string().min(1),
     })
     .merge(genOptionsSchema);
   const parsed = bodySchema.safeParse(req.body);
@@ -220,18 +220,18 @@ messagesRouter.post("/regenerate", (req, res) => {
     sendError(res, 400, "Invalid body", parsed.error.issues[0]?.message);
     return;
   }
-  const { chatId, messageId, requireApproval, reasoningEffort } = parsed.data;
+  const { chatUid, messageUid, requireApproval, reasoningEffort } = parsed.data;
 
-  const chat = chatsRepository.get(chatId);
+  const chat = chatsRepository.get(chatUid);
   if (!chat) {
-    sendError(res, 404, `Chat ${chatId} not found`);
+    sendError(res, 404, `Chat ${chatUid} not found`);
     return;
   }
 
-  const all = messagesRepository.listByChat(chatId);
-  const idx = all.findIndex((m) => m.id === messageId);
+  const all = messagesRepository.listByChat(chatUid);
+  const idx = all.findIndex((m) => m.id === messageUid);
   if (idx === -1) {
-    sendError(res, 404, `Message ${messageId} not found`);
+    sendError(res, 404, `Message ${messageUid} not found`);
     return;
   }
   if (all[idx].role !== "assistant") {
@@ -246,7 +246,7 @@ messagesRouter.post("/regenerate", (req, res) => {
 
   const assistantMessageId = newMessageId();
   const gen = runGeneration({
-    chatId,
+    chatUid,
     assistantMessageId,
     conversation: history,
     requireApproval: requireApproval ?? false,
@@ -267,8 +267,8 @@ messagesRouter.post("/regenerate", (req, res) => {
 messagesRouter.post("/continue", (req, res) => {
   const bodySchema = z
     .object({
-      chatId: z.string().min(1),
-      messageId: z.string().min(1),
+      chatUid: z.string().min(1),
+      messageUid: z.string().min(1),
       toolPart: toolPartSchema,
     })
     .merge(genOptionsSchema);
@@ -277,19 +277,19 @@ messagesRouter.post("/continue", (req, res) => {
     sendError(res, 400, "Invalid body", parsed.error.issues[0]?.message);
     return;
   }
-  const { chatId, messageId, toolPart, requireApproval, reasoningEffort } =
+  const { chatUid, messageUid, toolPart, requireApproval, reasoningEffort } =
     parsed.data;
 
-  const chat = chatsRepository.get(chatId);
+  const chat = chatsRepository.get(chatUid);
   if (!chat) {
-    sendError(res, 404, `Chat ${chatId} not found`);
+    sendError(res, 404, `Chat ${chatUid} not found`);
     return;
   }
 
-  const all = messagesRepository.listByChat(chatId);
-  const idx = all.findIndex((m) => m.id === messageId);
+  const all = messagesRepository.listByChat(chatUid);
+  const idx = all.findIndex((m) => m.id === messageUid);
   if (idx === -1) {
-    sendError(res, 404, `Message ${messageId} not found`);
+    sendError(res, 404, `Message ${messageUid} not found`);
     return;
   }
   if (all[idx].role !== "assistant") {
@@ -312,14 +312,14 @@ messagesRouter.post("/continue", (req, res) => {
 
   const history = all.slice(0, idx).map(toUIMessage);
   const updatedAssistantMessage: AppUIMessage = {
-    id: messageId,
+    id: messageUid,
     role: "assistant",
     parts: mergedParts,
   };
 
   const gen = runGeneration({
-    chatId,
-    assistantMessageId: messageId,
+    chatUid,
+    assistantMessageId: messageUid,
     conversation: [...history, updatedAssistantMessage],
     requireApproval: requireApproval ?? false,
     reasoningEffort,
@@ -330,34 +330,34 @@ messagesRouter.post("/continue", (req, res) => {
 /** POST /api/v1/messages/delete - see `DeleteMessageRequest`/`DeleteMessageResponse`. */
 messagesRouter.post("/delete", (req, res) => {
   const bodySchema = z.object({
-    chatId: z.string().min(1),
-    messageId: z.string().min(1),
+    chatUid: z.string().min(1),
+    messageUid: z.string().min(1),
   });
   const parsed = bodySchema.safeParse(req.body);
   if (!parsed.success) {
     sendError(res, 400, "Invalid body", parsed.error.issues[0]?.message);
     return;
   }
-  const { chatId, messageId } = parsed.data;
+  const { chatUid, messageUid } = parsed.data;
 
-  const existing = messagesRepository.getById(messageId);
+  const existing = messagesRepository.getById(messageUid);
   if (!existing) {
-    sendError(res, 404, `Message ${messageId} not found`);
+    sendError(res, 404, `Message ${messageUid} not found`);
     return;
   }
   // If this message is still being generated, stop that generation and make
   // sure it won't re-persist the message once the in-flight LLM call ends
   // (otherwise the "deleted" message would silently reappear).
-  discardGenerationIfTargeting(chatId, messageId);
-  messagesRepository.delete(messageId);
+  discardGenerationIfTargeting(chatUid, messageUid);
+  messagesRepository.delete(messageUid);
   sendResult(res, {});
 });
 
 /** POST /api/v1/messages/rate - see `RateAnswerRequest`/`RateAnswerResponse`. */
 messagesRouter.post("/rate", (req, res) => {
   const bodySchema = z.object({
-    chatId: z.string().min(1),
-    messageId: z.string().min(1),
+    chatUid: z.string().min(1),
+    messageUid: z.string().min(1),
     rate: rateSchema,
   });
   const parsed = bodySchema.safeParse(req.body);
@@ -365,11 +365,11 @@ messagesRouter.post("/rate", (req, res) => {
     sendError(res, 400, "Invalid body", parsed.error.issues[0]?.message);
     return;
   }
-  const { messageId, rate } = parsed.data;
+  const { messageUid, rate } = parsed.data;
 
-  const existing = messagesRepository.getById(messageId);
+  const existing = messagesRepository.getById(messageUid);
   if (!existing) {
-    sendError(res, 404, `Message ${messageId} not found`);
+    sendError(res, 404, `Message ${messageUid} not found`);
     return;
   }
   if (existing.role !== "assistant") {
@@ -378,9 +378,9 @@ messagesRouter.post("/rate", (req, res) => {
   }
 
   const ratedAt = Date.now();
-  messagesRepository.rate(messageId, rate, ratedAt);
+  messagesRepository.rate(messageUid, rate, ratedAt);
   const rateResult: RateResult = {
-    messageId,
+    messageUid,
     rate,
     ratedAt: new Date(ratedAt).toISOString(),
   };
@@ -389,20 +389,20 @@ messagesRouter.post("/rate", (req, res) => {
 
 /** POST /api/v1/messages/cancel - see `CancelGenerationRequest`/`CancelGenerationResponse`. */
 messagesRouter.post("/cancel", (req, res) => {
-  const bodySchema = z.object({ chatId: z.string().min(1) });
+  const bodySchema = z.object({ chatUid: z.string().min(1) });
   const parsed = bodySchema.safeParse(req.body);
   if (!parsed.success) {
     sendError(res, 400, "Invalid body", parsed.error.issues[0]?.message);
     return;
   }
-  const { chatId } = parsed.data;
+  const { chatUid } = parsed.data;
 
-  const chat = chatsRepository.get(chatId);
+  const chat = chatsRepository.get(chatUid);
   if (!chat) {
-    sendError(res, 404, `Chat ${chatId} not found`);
+    sendError(res, 404, `Chat ${chatUid} not found`);
     return;
   }
-  const cancelled = cancelGeneration(chatId);
+  const cancelled = cancelGeneration(chatUid);
   sendResult(res, { cancelled });
 });
 
@@ -415,19 +415,19 @@ messagesRouter.post("/cancel", (req, res) => {
  * is a raw SSE stream).
  */
 messagesRouter.get("/resume", (req, res) => {
-  const querySchema = z.object({ chatId: z.string().min(1) });
+  const querySchema = z.object({ chatUid: z.string().min(1) });
   const parsed = querySchema.safeParse(req.query);
   if (!parsed.success) {
     sendError(res, 400, "Invalid query", parsed.error.issues[0]?.message);
     return;
   }
-  const { chatId } = parsed.data;
+  const { chatUid } = parsed.data;
 
-  if (!isGenerationActive(chatId)) {
+  if (!isGenerationActive(chatUid)) {
     res.status(204).end();
     return;
   }
-  const gen = getActiveGeneration(chatId)!;
+  const gen = getActiveGeneration(chatUid)!;
   startSse(res);
   for (const chunk of gen.chunks) {
     writeChunk(res, chunk);

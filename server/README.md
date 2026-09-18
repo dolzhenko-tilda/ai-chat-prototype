@@ -49,18 +49,18 @@ npm run start   # node dist/index.js (после build)
 
 ### `GET /api/v1/init`
 
-Имитация авторизации: минтит новый `token` и возвращает `chatId` — последний использованный чат, если такой есть, иначе только что созданный пустой. Клиент вызывает этот эндпоинт только если у него ещё нет токена в `localStorage` (см. `client/src/composables/useChatId.ts`); если токен уже сохранён — он переиспользуется без сетевого запроса.
+Имитация авторизации: минтит новый `token` и возвращает `chatUid` — последний использованный чат, если такой есть, иначе только что созданный пустой. Клиент вызывает этот эндпоинт только если у него ещё нет токена в `localStorage` (см. `client/src/composables/useChatId.ts`); если токен уже сохранён — он переиспользуется без сетевого запроса.
 
 ```json
-{ "success": true, "result": { "chatId": "...", "token": "..." } }
+{ "success": true, "result": { "chatUid": "...", "token": "..." } }
 ```
 
 ### `GET /api/v1/messages/list`
 
-Возвращает полную историю сообщений чата, отсортированную по порядку (с опциональной пагинацией через `beforeId`/`limit`). Если чата ещё нет — возвращает пустой массив (в отличие от остальных эндпоинтов, чат implicitly не создаётся).
+Возвращает полную историю сообщений чата, отсортированную по порядку (с опциональной пагинацией через `beforeUid`/`limit`). Если чата ещё нет — возвращает пустой массив (в отличие от остальных эндпоинтов, чат implicitly не создаётся).
 
 ```json
-{ "success": true, "result": { "chatId": "...", "messages": [ { "id": "...", "role": "user" | "assistant", "parts": [...], "metadata": { "status": "complete" } } ], "hasMore": false } }
+{ "success": true, "result": { "chatUid": "...", "messages": [ { "id": "...", "role": "user" | "assistant", "parts": [...], "metadata": { "status": "complete" } } ], "hasMore": false } }
 ```
 
 ### `POST /api/v1/messages/create`
@@ -70,14 +70,14 @@ npm run start   # node dist/index.js (после build)
 ```json
 {
   "token": "...",
-  "chatId": "...",
+  "chatUid": "...",
   "message": "...",
   "requireApproval": false,
   "reasoningEffort": "medium"
 }
 ```
 
-`chatId` необязателен: если чат ещё не создан (пользователь нажал "Новый чат" — см. `useChatId.ts`'s `newChat()`), клиент отправляет запрос вообще без `chatId`, и сервер сам генерирует новый id (chatId **никогда** не генерируется на клиенте). Этот id попадает в БД и эхом возвращается клиенту в `messageMetadata` `start`-чанка ответа ассистента (см. "Формат SSE" ниже) — так фронт узнаёт/усваивает его.
+`chatUid` необязателен: если чат ещё не создан (пользователь нажал "Новый чат" — см. `useChatId.ts`'s `newChat()`), клиент отправляет запрос вообще без `chatUid`, и сервер сам генерирует новый id (chatUid **никогда** не генерируется на клиенте). Этот id попадает в БД и эхом возвращается клиенту в `messageMetadata` `start`-чанка ответа ассистента (см. "Формат SSE" ниже) — так фронт узнаёт/усваивает его.
 
 `requireApproval`/`reasoningEffort` — необязательное расширение сверх `ai-chat-contracts.ts` (нужны существующему UI настроек, см. `useChatSettings.ts`); любой клиент, следующий только документированному контракту, продолжит работать и без них. `requireApproval` (по умолчанию `false`): если `true`, вызовы "чувствительных" тулов (см. ниже про tool approval) потребуют явного подтверждения пользователя, прежде чем выполнятся. `reasoningEffort` — опциональный уровень "размышлений" модели: `"off" | "minimal" | "low" | "medium" | "high" | "xhigh"` (по умолчанию `"medium"`). Прокидывается в `streamText` как стандартизированная опция `reasoning` (`"off"` маппится на `"none"`, полностью отключая thinking у моделей, которые это поддерживают).
 
@@ -89,10 +89,10 @@ npm run start   # node dist/index.js (после build)
 
 ### `POST /api/v1/messages/regenerate`
 
-Перегенерация ответа ассистента. **Семантика:** `messageId` — id **сообщения ассистента**, которое нужно перегенерировать. Сервер берёт всю историю строго **до** этого сообщения (не включая), удаляет его и все более поздние сообщения, и создаёт **новое** сообщение ассистента (с новым `id`) взамен.
+Перегенерация ответа ассистента. **Семантика:** `messageUid` — id **сообщения ассистента**, которое нужно перегенерировать. Сервер берёт всю историю строго **до** этого сообщения (не включая), удаляет его и все более поздние сообщения, и создаёт **новое** сообщение ассистента (с новым `id`) взамен.
 
 ```json
-{ "token": "...", "chatId": "...", "messageId": "...", "requireApproval": false, "reasoningEffort": "medium" }
+{ "token": "...", "chatUid": "...", "messageUid": "...", "requireApproval": false, "reasoningEffort": "medium" }
 ```
 
 Отвечает потоком SSE.
@@ -109,8 +109,8 @@ npm run start   # node dist/index.js (после build)
 ```json
 {
   "token": "...",
-  "chatId": "...",
-  "messageId": "...",
+  "chatUid": "...",
+  "messageUid": "...",
   "toolPart": { "type": "tool-calculate", "toolCallId": "...", "state": "output-available", "output": { ... } },
   "requireApproval": false,
   "reasoningEffort": "medium"
@@ -124,7 +124,7 @@ npm run start   # node dist/index.js (после build)
 Удаляет сообщение из истории.
 
 ```json
-{ "token": "...", "chatId": "...", "messageId": "..." }
+{ "token": "...", "chatUid": "...", "messageUid": "..." }
 ```
 
 ### `POST /api/v1/messages/cancel`
@@ -144,24 +144,24 @@ npm run start   # node dist/index.js (после build)
 
 ### `POST /api/v1/messages/rate`
 
-Оценка ответа ассистента: лайк/дизлайк. Только сообщения с `role: "assistant"` можно оценивать (`400`, если `messageId` указывает на сообщение пользователя). Повторный вызов с другим значением `rate` перезаписывает предыдущую оценку.
+Оценка ответа ассистента: лайк/дизлайк. Только сообщения с `role: "assistant"` можно оценивать (`400`, если `messageUid` указывает на сообщение пользователя). Повторный вызов с другим значением `rate` перезаписывает предыдущую оценку.
 
 ```json
-{ "token": "...", "chatId": "...", "messageId": "...", "rate": "like" }
+{ "token": "...", "chatUid": "...", "messageUid": "...", "rate": "like" }
 ```
 
 ```json
-{ "success": true, "result": { "messageId": "...", "rate": "like", "ratedAt": "2026-09-03T10:00:00.000Z" } }
+{ "success": true, "result": { "messageUid": "...", "rate": "like", "ratedAt": "2026-09-03T10:00:00.000Z" } }
 ```
 
 Оценка хранится в колонках `rate`/`rated_at` таблицы `messages` и возвращается клиенту как `message.metadata.rateInfo` в `GET /messages/list` — так фронт может подсветить нажатую кнопку (👍/👎) даже для сообщений, загруженных из истории.
 
 ### `GET /api/v1/chats/list`
 
-Список всех чатов, отсортированный по `updated_at` (сначала недавно активные), с опциональной пагинацией через `beforeId`/`limit` (по аналогии с `GET /messages/list`, но т.к. список уже отсортирован от новых к старым, `beforeId` продолжает пагинацию *после* указанного чата в этом порядке — "следующая, более старая страница").
+Список всех чатов, отсортированный по `updated_at` (сначала недавно активные), с опциональной пагинацией через `beforeUid`/`limit` (по аналогии с `GET /messages/list`, но т.к. список уже отсортирован от новых к старым, `beforeUid` продолжает пагинацию *после* указанного чата в этом порядке — "следующая, более старая страница").
 
 ```json
-{ "success": true, "result": { "chats": [ { "id": "...", "name": "...", "updatedAt": "2026-09-03T10:00:00.000Z" } ], "hasMore": false } }
+{ "success": true, "result": { "chats": [ { "uid": "...", "name": "...", "updatedAt": "2026-09-03T10:00:00.000Z" } ], "hasMore": false } }
 ```
 
 `name` автоматически проставляется при первом сообщении пользователя в чате (обрезка первых ~60 символов, см. `deriveChatName` в `routes/messages.ts`) — если ещё не проставлено (т.е. в чате пока нет сообщений), возвращается `"New chat"`. Явное имя, заданное через `POST /chats/rename`, никогда не перезаписывается автоматически.
@@ -170,18 +170,18 @@ npm run start   # node dist/index.js (после build)
 
 ### `POST /api/v1/chats/rename`
 
-Переименовывает чат. `404`, если `chatId` не существует. Не меняет `updatedAt` чата (см. выше) — только имя.
+Переименовывает чат. `404`, если `chatUid` не существует. Не меняет `updatedAt` чата (см. выше) — только имя.
 
 ```json
-{ "token": "...", "chatId": "...", "name": "..." }
+{ "token": "...", "chatUid": "...", "name": "..." }
 ```
 
 ### `POST /api/v1/chats/delete`
 
-Удаляет чат вместе со всеми его сообщениями (`ON DELETE CASCADE` в схеме БД). `404`, если `chatId` не существует. Если у чата в момент удаления была активная генерация — она сначала отменяется (`cancelGeneration`), чтобы не пытаться дописать сообщение в уже удалённый чат.
+Удаляет чат вместе со всеми его сообщениями (`ON DELETE CASCADE` в схеме БД). `404`, если `chatUid` не существует. Если у чата в момент удаления была активная генерация — она сначала отменяется (`cancelGeneration`), чтобы не пытаться дописать сообщение в уже удалённый чат.
 
 ```json
-{ "token": "...", "chatId": "..." }
+{ "token": "...", "chatUid": "..." }
 ```
 
 ## Формат SSE (протокол стриминга)
@@ -190,7 +190,7 @@ npm run start   # node dist/index.js (после build)
 
 Сервер собирает эти чанки через `toUIMessageStream()` (стандалон-функция `ai` v7) поверх `streamText().stream`, поэтому набор типов чанков — все, что поддерживает установленная версия `ai`: `start`, `start-step`, `text-start/delta/end`, `reasoning-start/delta/end`, `tool-input-start/delta/available`, `tool-output-available/error`, `tool-approval-request/response`, `finish-step`, `finish`, `error`, `abort`, плюс кастомный `data-error` (см. ниже).
 
-Самый первый чанк (`start`) несёт `messageMetadata` с `chatId`/`status: "streaming"`/`createdAt` (см. `generationService.ts`'s `messageMetadata`) — это единственный способ клиенту узнать `chatId`, если сообщение было отправлено на `/messages/create` без него (новый чат, см. выше).
+Самый первый чанк (`start`) несёт `messageMetadata` с `chatUid`/`status: "streaming"`/`createdAt` (см. `generationService.ts`'s `messageMetadata`) — это единственный способ клиенту узнать `chatUid`, если сообщение было отправлено на `/messages/create` без него (новый чат, см. выше).
 
 Ошибки, которые прерывают генерацию целиком (сеть, исключение в `streamText`), дополнительно оборачиваются в кастомную data-часть `{"type":"data-error","data":{"message":"..."}}`, чтобы клиент мог отрисовать их как постоянную часть сообщения (а не только как временный баннер).
 

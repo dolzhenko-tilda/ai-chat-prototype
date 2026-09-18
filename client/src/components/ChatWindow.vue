@@ -34,7 +34,7 @@ const messages = computed(() => [...chat.messages.value]);
 async function onSend(text: string) {
   // Guards against the brief window before `useChatId`'s init/auth call
   // resolves (see the "Connecting…" notice below). A brand new chat (empty
-  // `chatId`) is fine to send from - the server mints its id on this call.
+  // `chatId`) is fine to send from - the server mints its uid on this call.
   if (isInitializing.value) return;
   // Stamp the optimistic local message with its creation time right away, so
   // it doesn't have to wait for a history reload to show/group correctly -
@@ -48,7 +48,7 @@ async function onSend(text: string) {
     metadata: {
       status: "complete",
       createdAt: new Date().toISOString(),
-      chatId: effectiveChatId.value,
+      chatUid: effectiveChatId.value,
       context: { pageUrl: window.location.href },
     },
   });
@@ -93,7 +93,7 @@ async function onDeny(approvalId: string) {
 }
 
 async function onRate(messageId: string, rate: Rate) {
-  const {messageId: _, ...rateInfo} = await api.rateMessage(effectiveChatId.value, messageId, rate);
+  const {messageUid: _, ...rateInfo} = await api.rateMessage(effectiveChatId.value, messageId, rate);
   // Same reference-swap pattern as `onDelete`: assign a new array so the
   // `messages` computed (and MessageList's prop-change watcher) picks it up.
   chat.messages.value = chat.messages.value.map((m) =>
@@ -103,7 +103,7 @@ async function onRate(messageId: string, rate: Rate) {
           metadata: {
             status: m.metadata?.status ?? "complete",
             createdAt: m.metadata?.createdAt ?? new Date().toISOString(),
-            chatId: m.metadata?.chatId ?? effectiveChatId.value,
+            chatUid: m.metadata?.chatUid ?? effectiveChatId.value,
             rateInfo,
           },
         }

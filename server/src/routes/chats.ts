@@ -12,13 +12,13 @@ export const chatsRouter = Router();
 chatsRouter.use(requireToken);
 
 function toChat(row: ChatRow): Chat {
-  return { id: row.id, name: row.name ?? "New chat", updatedAt: new Date(row.updatedAt).toISOString() };
+  return { uid: row.id, name: row.name ?? "New chat", updatedAt: new Date(row.updatedAt).toISOString() };
 }
 
 /** GET /api/v1/chats/list - see `GetChatsRequest`/`GetChatsResponse`. */
 chatsRouter.get("/list", (req, res) => {
   const querySchema = z.object({
-    beforeId: z.string().optional(),
+    beforeUid: z.string().optional(),
     limit: z.coerce.number().int().positive().optional(),
   });
   const parsed = querySchema.safeParse(req.query);
@@ -26,15 +26,15 @@ chatsRouter.get("/list", (req, res) => {
     sendError(res, 400, "Invalid query", parsed.error.issues[0]?.message);
     return;
   }
-  const { beforeId, limit } = parsed.data;
+  const { beforeUid, limit } = parsed.data;
 
-  // Sorted most-recently-updated first; `beforeId` continues pagination
+  // Sorted most-recently-updated first; `beforeUid` continues pagination
   // *after* that chat in this order (i.e. "give me the next, older page"),
-  // mirroring `GET /messages/list`'s `beforeId` semantics but adapted to a
+  // mirroring `GET /messages/list`'s `beforeUid` semantics but adapted to a
   // list that's already sorted newest-first.
   let rows = chatsRepository.listAll();
-  if (beforeId) {
-    const idx = rows.findIndex((c) => c.id === beforeId);
+  if (beforeUid) {
+    const idx = rows.findIndex((c) => c.id === beforeUid);
     rows = idx === -1 ? [] : rows.slice(idx + 1);
   }
   let hasMore = false;
@@ -49,7 +49,7 @@ chatsRouter.get("/list", (req, res) => {
 /** POST /api/v1/chats/rename - see `RenameChatRequest`/`RenameChatResponse`. */
 chatsRouter.post("/rename", (req, res) => {
   const bodySchema = z.object({
-    chatId: z.string().min(1),
+    chatUid: z.string().min(1),
     name: z.string().min(1),
   });
   const parsed = bodySchema.safeParse(req.body);
@@ -57,39 +57,39 @@ chatsRouter.post("/rename", (req, res) => {
     sendError(res, 400, "Invalid body", parsed.error.issues[0]?.message);
     return;
   }
-  const { chatId, name } = parsed.data;
+  const { chatUid, name } = parsed.data;
 
-  const chat = chatsRepository.get(chatId);
+  const chat = chatsRepository.get(chatUid);
   if (!chat) {
-    sendError(res, 404, `Chat ${chatId} not found`);
+    sendError(res, 404, `Chat ${chatUid} not found`);
     return;
   }
-  chatsRepository.rename(chatId, name);
+  chatsRepository.rename(chatUid, name);
   sendResult(res, {});
 });
 
 /** POST /api/v1/chats/delete - see `DeleteChatRequest`/`DeleteChatResponse`. */
 chatsRouter.post("/delete", (req, res) => {
-  const bodySchema = z.object({ chatId: z.string().min(1) });
+  const bodySchema = z.object({ chatUid: z.string().min(1) });
   const parsed = bodySchema.safeParse(req.body);
   if (!parsed.success) {
     sendError(res, 400, "Invalid body", parsed.error.issues[0]?.message);
     return;
   }
-  const { chatId } = parsed.data;
+  const { chatUid } = parsed.data;
 
-  const chat = chatsRepository.get(chatId);
+  const chat = chatsRepository.get(chatUid);
   if (!chat) {
-    sendError(res, 404, `Chat ${chatId} not found`);
+    sendError(res, 404, `Chat ${chatUid} not found`);
     return;
   }
   // Stop any in-flight generation first: `messages`/`generation_state` rows
   // cascade-delete with the chat (see schema.sql's `ON DELETE CASCADE`), and
   // an active generation would otherwise try to persist its assistant
   // message into a chat_id that no longer exists once it finishes.
-  if (isGenerationActive(chatId)) {
-    cancelGeneration(chatId);
+  if (isGenerationActive(chatUid)) {
+    cancelGeneration(chatUid);
   }
-  chatsRepository.delete(chatId);
+  chatsRepository.delete(chatUid);
   sendResult(res, {});
 });

@@ -20,7 +20,7 @@ import type { AppUIMessage, ReasoningEffort } from "../types/chat";
  * (see `useChatId.ts`'s `newChat()`): `chatId` starts out empty,
  * `/messages/create` is sent without one, and the server echoes back the id
  * it picked on the assistant reply's `start` chunk (see
- * `AppUIMessageMetadata.chatId`, populated by `generationService.ts`'s
+ * `AppUIMessageMetadata.chatUid`, populated by `generationService.ts`'s
  * `messageMetadata`).
  *
  * Importantly, that resolved id is *never* written into the `chatId` ref
@@ -96,7 +96,7 @@ export function useAppChat(
   // right away (to localStorage only - see the big comment above for why).
   watch(chat.messages, (messages) => {
     if (chatId.value || resolvedChatId.value) return;
-    const found = messages.find((m) => m.metadata?.chatId)?.metadata?.chatId;
+    const found = messages.find((m) => m.metadata?.chatUid)?.metadata?.chatUid;
     if (found) {
       resolvedChatId.value = found;
       persistChatId(found);

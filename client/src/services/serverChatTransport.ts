@@ -12,7 +12,7 @@ export interface ServerChatTransportOptions {
    * instance freezes its `id` at construction time and reuses that same
    * instance (and thus the same frozen id) for a whole exchange, including
    * any automatic tool-call/approval continuations - so if a message is
-   * first sent with no `chatId` (new chat, see `useChatId.ts`), the server
+   * first sent with no `chatUid` (new chat, see `useChatId.ts`), the server
    * mints one, but that instance never learns it. See `useAppChat.ts`'s
    * `effectiveChatId`, which this getter is wired to.
    */
@@ -115,7 +115,7 @@ export class ServerChatTransport implements ChatTransport<AppUIMessage> {
       if (!targetId) throw new Error("regenerate-message requires a messageId");
       return this.post(
         "/api/v1/messages/regenerate",
-        { chatId: effectiveChatId, messageId: targetId, requireApproval, reasoningEffort },
+        { chatUid: effectiveChatId, messageUid: targetId, requireApproval, reasoningEffort },
         abortSignal
       );
     }
@@ -134,7 +134,7 @@ export class ServerChatTransport implements ChatTransport<AppUIMessage> {
       if (!toolPart) throw new Error("No tool part to continue with");
       return this.post(
         "/api/v1/messages/continue",
-        { chatId: effectiveChatId, messageId: last.id, toolPart, requireApproval, reasoningEffort },
+        { chatUid: effectiveChatId, messageUid: last.id, toolPart, requireApproval, reasoningEffort },
         abortSignal
       );
     }
@@ -146,11 +146,11 @@ export class ServerChatTransport implements ChatTransport<AppUIMessage> {
     // `effectiveChatId` is falsy only for the very first message of a brand
     // new chat (see `useChatId.ts`'s `newChat()`) - it's omitted rather than
     // sent as `""` so the server mints one itself; only the server is
-    // allowed to generate a chatId.
+    // allowed to generate a chat uid.
     return this.post(
       "/api/v1/messages/create",
       {
-        ...(effectiveChatId ? { chatId: effectiveChatId } : {}),
+        ...(effectiveChatId ? { chatUid: effectiveChatId } : {}),
         message: extractText(last),
         requireApproval,
         reasoningEffort,
@@ -167,7 +167,7 @@ export class ServerChatTransport implements ChatTransport<AppUIMessage> {
     ReadableStream<UIMessageChunk> | null
   > {
     const effectiveChatId = this.options.getChatId() || chatId;
-    const params = new URLSearchParams({ token: api.getToken() ?? "", chatId: effectiveChatId });
+    const params = new URLSearchParams({ token: api.getToken() ?? "", chatUid: effectiveChatId });
     const res = await fetch(`${this.options.baseUrl}/api/v1/messages/resume?${params}`, {
       method: "GET",
       signal: abortSignal,

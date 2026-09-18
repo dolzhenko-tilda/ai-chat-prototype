@@ -32,7 +32,7 @@ src/
 │   ├── ToolPart.vue       # tool-call/tool-result, включая approval UI
 │   └── ErrorPart.vue      # часть сообщения с ошибкой
 ├── composables/
-│   ├── useChatId.ts       # восстановление/сброс chatId в localStorage (никогда не генерирует id сам)
+│   ├── useChatId.ts       # восстановление/сброс chatUid в localStorage (никогда не генерирует id сам)
 │   └── useAppChat.ts      # обвязка над `useChat` из `@ai-sdk/vue`: загрузка
 │                          # истории, resume, автовыполнение клиентского tool'а
 ├── services/

@@ -79,9 +79,9 @@ type MessageMetadata = Partial<UiMessageMetadata> & {
   status: MessageStatus;
   createdAt: string;
   /** Чат, которому принадлежит сообщение. Для `/messages/create`, вызванного
-   * без `chatId` (новый чат), это единственный способ клиенту узнать id,
+   * без `chatUid` (новый чат), это единственный способ клиенту узнать id,
    * присвоенный сервером — см. `MessageChunk`'s "start". */
-  chatId: string;
+  chatUid: string;
   rateInfo: RateInfo;
 };
 
@@ -110,7 +110,8 @@ type MessagePart =
   | CustomPart
   | ToolPart;
 
-/** Сообщение чата — используется в ответах. */
+/** Сообщение чата — используется в ответах.
+ * `id` (а не `uid`) — имя поля задано ai-sdk (UIMessage). */
 type Message = {
   id: string;
   role: MessageRole;
@@ -126,8 +127,9 @@ type Message = {
 type MessageChunk =
   | {
       type: "start";
+      /** Имя поля задано протоколом ai-sdk (UIMessageChunk) — здесь это не `messageUid`. */
       messageId?: string;
-      /** Присутствует на первом чанке ответа: несёт `chatId` (в т.ч. только
+      /** Присутствует на первом чанке ответа: несёт `chatUid` (в т.ч. только
        * что сгенерированный сервером для нового чата), `status: "streaming"`
        * и `createdAt` ассистентского сообщения (см. `MessageMetadata`). */
       messageMetadata?: Partial<MessageMetadata>;
@@ -166,7 +168,7 @@ type MessageChunk =
 // ===================== Общие типы для истории =====================
 
 type Chat = {
-  id: string;
+  uid: string;
   name: string;
   updatedAt: string;
 };
@@ -174,13 +176,13 @@ type Chat = {
 // ===================== 1. GET /api/v1/init =====================
 // Получение временного токена, необходимого для отправки остальных запросов
 // Токен генерирует бэке, пока пользователь только один в MVP.
-// chatId генерируется на сервере, если чатов у токена нет. Если же чаты есть,
+// chatUid генерируется на сервере, если чатов у токена нет. Если же чаты есть,
 // то возвращается id последнего чата
 
 type InitRequest = {};
 
 type InitResponse = ServerResponse<{
-  chatId: string;
+  chatUid: string;
   token: string;
 }>;
 
@@ -190,13 +192,13 @@ type InitResponse = ServerResponse<{
 // то оно возвращается с пустым parts и со статусом streaming
 
 type GetMessagesRequest = ClientRequest<{
-  chatId: string;
-  beforeId?: string;
+  chatUid: string;
+  beforeUid?: string;
   limit?: number;
 }>;
 
 type GetMessagesResponse = ServerResponse<{
-  chatId: string;
+  chatUid: string;
   messages: Message[];
   hasMore: boolean;
 }>;
@@ -205,13 +207,13 @@ type GetMessagesResponse = ServerResponse<{
 // Отправка нового сообщения пользователя.
 // message - текст нового сообщения пользователя для отправки в чат.
 // Клиент не пересылает историю. Ответ — SSE-поток чанков ассистента.
-// chatId не передаётся для нового чата (см. useChatId.ts's newChat()) — сервер
+// chatUid не передаётся для нового чата (см. useChatId.ts's newChat()) — сервер
 // сам генерирует id нового чата и возвращает его в metadata "start"-чанка
 // ассистентского сообщения (см. MessageChunk/MessageMetadata ниже); клиент
 // подхватывает его оттуда.
 
 type CreateMessageRequest = ClientRequest<{
-  chatId?: string;
+  chatUid?: string;
   message: string;
   metadata?: UiMessageMetadata;
 }>;
@@ -221,12 +223,12 @@ type CreateMessageResponse = ReadableStream<MessageChunk>;
 
 // ===================== 2. POST /api/v1/messages/regenerate =====================
 // Перегенерация ответа ассистента.
-// messageId — id сообщения-ассистента, которое нужно перегенерировать.
+// messageUid — id сообщения-ассистента, которое нужно перегенерировать.
 // Клиент не пересылает историю. Ответ — SSE-поток чанков ассистента.
 
 type RegenerateMessageRequest = ClientRequest<{
-  chatId: string;
-  messageId: string;
+  chatUid: string;
+  messageUid: string;
 }>;
 
 /** Ответ — SSE-поток */
@@ -237,8 +239,8 @@ type RegenerateMessageResponse = ReadableStream<MessageChunk>;
 // флоу: клиент шлёт обновлённый tool-part.
 
 type ContinueMessageRequest = ClientRequest<{
-  chatId: string;
-  messageId: string;
+  chatUid: string;
+  messageUid: string;
   toolPart: ToolPart;
 }>;
 
@@ -249,8 +251,8 @@ type ContinueMessageResponse = ReadableStream<MessageChunk>;
 // Удаляет сообщение из истории.
 
 type DeleteMessageRequest = ClientRequest<{
-  chatId: string;
-  messageId: string;
+  chatUid: string;
+  messageUid: string;
 }>;
 
 type DeleteMessageResponse = ServerResponse;
@@ -259,7 +261,7 @@ type DeleteMessageResponse = ServerResponse;
 // Останавливает активную генерацию для чата, если она есть.
 
 type CancelGenerationRequest = ClientRequest<{
-  chatId: string;
+  chatUid: string;
 }>;
 
 type CancelGenerationResponse = ServerResponse<{
@@ -273,7 +275,7 @@ type CancelGenerationResponse = ServerResponse<{
 // последнее сообщение ассистента в статусе streaming.
 
 type ResumeGenerationRequest = ClientRequest<{
-  chatId: string;
+  chatUid: string;
 }>;
 
 /** ReadableStream чанков */
@@ -283,14 +285,14 @@ type ResumeGenerationResponse = ReadableStream<MessageChunk> | null;
 // Оценка ответа.
 
 type RateAnswerRequest = ClientRequest<{
-  chatId: string;
-  messageId: string;
+  chatUid: string;
+  messageUid: string;
   rate: Rate;
 }>;
 
 type RateAnswerResponse = ServerResponse<
   RateInfo & {
-    messageId: string;
+    messageUid: string;
   }
 >;
 
@@ -298,7 +300,7 @@ type RateAnswerResponse = ServerResponse<
 // Получение списка всех чатов.
 
 type GetChatsRequest = ClientRequest<{
-  beforeId?: string;
+  beforeUid?: string;
   limit?: number;
 }>;
 
@@ -311,7 +313,7 @@ type GetChatsResponse = ServerResponse<{
 // Переименование чата
 
 type RenameChatRequest = ClientRequest<{
-  chatId: string;
+  chatUid: string;
   name: string;
 }>;
 
@@ -321,7 +323,7 @@ type RenameChatResponse = ServerResponse;
 // Удаление чата
 
 type DeleteChatRequest = ClientRequest<{
-  chatId: string;
+  chatUid: string;
 }>;
 
 type DeleteChatResponse = ServerResponse;

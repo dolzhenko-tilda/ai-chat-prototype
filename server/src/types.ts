@@ -26,7 +26,7 @@ export type RateInfo = {
 };
 
 export type RateResult = RateInfo & {
-  messageId: string;
+  messageUid: string;
 };
 
 /** Client-supplied context about where the chat is embedded (e.g. the page
@@ -40,7 +40,7 @@ export type Context = {
 
 /** A chat's summary, used for the chats history list (see `GET /api/v1/chats/list`). */
 export type Chat = {
-  id: string;
+  uid: string;
   name: string;
   updatedAt: string;
 };
@@ -67,8 +67,8 @@ export type AppUIMessageMetadata = {
    * top-level `metadata` field itself can briefly be absent client-side,
    * before the first streamed chunk populates it - see
    * `AppUIMessage["metadata"]`/ai-sdk's `createStreamingUIMessageState`). */
-  chatId: string;
-  /** ISO timestamp the message was created at (used to render its time and to group messages by day). Required like `status`/`chatId` - every message has one. */
+  chatUid: string;
+  /** ISO timestamp the message was created at (used to render its time and to group messages by day). Required like `status`/`chatUid` - every message has one. */
   createdAt: string;
   /** Present only once the (assistant) message has been rated. */
   rateInfo?: RateInfo;

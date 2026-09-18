@@ -17,7 +17,7 @@ const STORAGE_KEY = "ai-chat-prototype:chatId";
  * chatId is *never* generated on the client - only the server is allowed to
  * mint one (see `ai-chat-contracts.ts`'s `POST /messages/create`). "New
  * chat" therefore just clears the current id; the next message is sent
- * without a `chatId`, and the server creates the chat row and picks its id.
+ * without a `chatUid`, and the server creates the chat row and picks its uid.
  *
  * Crucially, this `chatId` ref is *only* ever written to by explicit user
  * actions (`newChat`/`openChat`) - never by `useAppChat` picking up the
@@ -38,7 +38,7 @@ export function useChatId() {
 
   void ensureAuth(STORAGE_KEY)
     .then((result) => {
-      chatId.value = result.chatId;
+      chatId.value = result.chatUid;
     })
     .catch((e) => {
       initError.value = e instanceof Error ? e.message : String(e);

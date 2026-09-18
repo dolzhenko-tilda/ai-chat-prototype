@@ -16,6 +16,6 @@ export const initRouter = Router();
 initRouter.get("/init", (_req, res) => {
   const token = tokensRepository.create();
   const lastChat = chatsRepository.getLast();
-  const chatId = lastChat ? lastChat.id : chatsRepository.ensureExists(randomUUID()).id;
-  sendResult(res, { chatId, token });
+  const chatUid = lastChat ? lastChat.id : chatsRepository.ensureExists(randomUUID()).id;
+  sendResult(res, { chatUid, token });
 });

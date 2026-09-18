@@ -20,7 +20,7 @@ import type {
 } from "../types.js";
 
 export interface ActiveGeneration {
-  chatId: string;
+  chatUid: string;
   messageId: string;
   abortController: AbortController;
   emitter: EventEmitter;
@@ -33,31 +33,31 @@ export interface ActiveGeneration {
   discarded: boolean;
 }
 
-/** In-memory registry of currently streaming generations, keyed by chatId. */
+/** In-memory registry of currently streaming generations, keyed by chatUid. */
 const activeGenerations = new Map<string, ActiveGeneration>();
 
-export function isGenerationActive(chatId: string): boolean {
-  return activeGenerations.has(chatId);
+export function isGenerationActive(chatUid: string): boolean {
+  return activeGenerations.has(chatUid);
 }
 
 export function getActiveGeneration(
-  chatId: string,
+  chatUid: string,
 ): ActiveGeneration | undefined {
-  return activeGenerations.get(chatId);
+  return activeGenerations.get(chatUid);
 }
 
 /**
- * Aborts the active generation for `chatId` if it targets `messageId`, and
+ * Aborts the active generation for `chatUid` if it targets `messageId`, and
  * marks it so its (still in-flight) completion handler won't re-persist the
  * message. Used by `DELETE /messages/:id` so deleting a message that's
  * actively streaming actually sticks, instead of the message reappearing
  * once the LLM call finishes.
  */
 export function discardGenerationIfTargeting(
-  chatId: string,
+  chatUid: string,
   messageId: string,
 ): void {
-  const gen = activeGenerations.get(chatId);
+  const gen = activeGenerations.get(chatUid);
   if (!gen || gen.messageId !== messageId) return;
   gen.discarded = true;
   gen.abortController.abort();
@@ -124,7 +124,7 @@ function buildSystemPrompt(context?: Context): string {
 }
 
 function persistAssistantMessage(
-  chatId: string,
+  chatUid: string,
   messageId: string,
   parts: AppUIMessage["parts"],
   status: MessageStatus,
@@ -136,7 +136,7 @@ function persistAssistantMessage(
   } else {
     messagesRepository.insert({
       id: messageId,
-      chatId,
+      chatId: chatUid,
       role: "assistant",
       parts,
       status,
@@ -148,13 +148,13 @@ function persistAssistantMessage(
 function finishGeneration(gen: ActiveGeneration) {
   if (gen.finished) return;
   gen.finished = true;
-  activeGenerations.delete(gen.chatId);
-  generationStateRepository.finish(gen.chatId);
+  activeGenerations.delete(gen.chatUid);
+  generationStateRepository.finish(gen.chatUid);
   gen.emitter.emit("end");
 }
 
 export interface RunGenerationOptions {
-  chatId: string;
+  chatUid: string;
   /** id the assistant message should have (freshly generated, or an existing one for regenerate/continue) */
   assistantMessageId: string;
   /** Full conversation to send to the model, ending with the latest user or assistant (tool-updated) message. */
@@ -177,7 +177,7 @@ export interface RunGenerationOptions {
  */
 export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
   const {
-    chatId,
+    chatUid,
     assistantMessageId,
     conversation,
     requireApproval,
@@ -186,7 +186,7 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
   } = options;
 
   // Only one active generation per chat at a time; a new one supersedes it.
-  const existing = activeGenerations.get(chatId);
+  const existing = activeGenerations.get(chatUid);
   if (existing) {
     existing.abortController.abort();
     finishGeneration(existing);
@@ -196,7 +196,7 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
   const emitter = new EventEmitter();
   emitter.setMaxListeners(0);
   const gen: ActiveGeneration = {
-    chatId,
+    chatUid,
     messageId: assistantMessageId,
     abortController,
     emitter,
@@ -204,8 +204,8 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
     finished: false,
     discarded: false,
   };
-  activeGenerations.set(chatId, gen);
-  generationStateRepository.start(chatId, assistantMessageId);
+  activeGenerations.set(chatUid, gen);
+  generationStateRepository.start(chatUid, assistantMessageId);
 
   // Placeholder row so history/resume immediately reflect the "streaming" state.
   // Captured once and reused below for the `start` chunk's `messageMetadata`
@@ -231,7 +231,7 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
       ? previousAssistantMessage.parts
       : [];
   const assistantCreatedAt = Date.now();
-  persistAssistantMessage(chatId, assistantMessageId, initialParts, "streaming", assistantCreatedAt);
+  persistAssistantMessage(chatUid, assistantMessageId, initialParts, "streaming", assistantCreatedAt);
 
   // Seed the replay log (read by `GET /messages/resume`, see `streamGenerationToResponse`)
   // with a synthetic `start` chunk plus `initialParts` converted back into an
@@ -247,7 +247,7 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
         type: "start",
         messageId: assistantMessageId,
         messageMetadata: {
-          chatId,
+          chatUid,
           status: "streaming",
           createdAt: new Date(assistantCreatedAt).toISOString(),
         },
@@ -337,12 +337,12 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
         // Attaches metadata to the very first (`start`) chunk so it's merged
         // directly into that chunk (ai-sdk only emits a separate
         // `message-metadata` chunk for non-start/finish parts) - the client
-        // therefore has `chatId` available from the first chunk of the
+        // therefore has `chatUid` available from the first chunk of the
         // stream, before any text/tool parts arrive. `status: "streaming"`
         // mirrors the placeholder row just persisted above.
         messageMetadata: ({ part }) =>
           part.type === "start"
-            ? { chatId, status: "streaming", createdAt: new Date(assistantCreatedAt).toISOString() }
+            ? { chatUid, status: "streaming", createdAt: new Date(assistantCreatedAt).toISOString() }
             : undefined,
         onError: (error) =>
           error instanceof Error ? error.message : "An error occurred.",
@@ -417,21 +417,21 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
 
         gen.chunks.push(outgoingChunk);
         emitter.emit("chunk", outgoingChunk);
-        generationStateRepository.appendChunk(chatId, gen.chunks);
+        generationStateRepository.appendChunk(chatUid, gen.chunks);
       }
 
       // If the message was deleted while this generation was still running
       // (see `discardGenerationIfTargeting`), don't resurrect it.
       if (!gen.discarded) {
         persistAssistantMessage(
-          chatId,
+          chatUid,
           assistantMessageId,
           finalizeParts(finalMessage?.parts ?? []),
           finalMessage ? finalStatus : "error",
         );
       }
     } catch (error) {
-      console.error(`[generation:${chatId}] failed`, error);
+      console.error(`[generation:${chatUid}] failed`, error);
       const message = error instanceof Error ? error.message : String(error);
       lastErrorText = message;
       const dataErrorChunk: AppUIMessageChunk = {
@@ -444,12 +444,12 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
         errorText: message,
       };
       gen.chunks.push(dataErrorChunk, errorChunk);
-      generationStateRepository.appendChunk(chatId, gen.chunks);
+      generationStateRepository.appendChunk(chatUid, gen.chunks);
       emitter.emit("chunk", dataErrorChunk);
       emitter.emit("chunk", errorChunk);
       if (!gen.discarded) {
         persistAssistantMessage(
-          chatId,
+          chatUid,
           assistantMessageId,
           finalizeParts(finalMessage?.parts ?? []),
           "error",
@@ -463,9 +463,9 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
   return gen;
 }
 
-export function cancelGeneration(chatId: string): boolean {
-  const gen = activeGenerations.get(chatId);
-  generationStateRepository.requestAbort(chatId);
+export function cancelGeneration(chatUid: string): boolean {
+  const gen = activeGenerations.get(chatUid);
+  generationStateRepository.requestAbort(chatUid);
   if (!gen) return false;
   gen.abortController.abort();
   return true;

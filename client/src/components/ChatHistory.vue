@@ -35,7 +35,7 @@ async function load() {
 onMounted(load);
 
 function startRename(chat: Chat) {
-  editingId.value = chat.id;
+  editingId.value = chat.uid;
   editingName.value = chat.name;
 }
 
@@ -51,7 +51,7 @@ async function confirmRename(chat: Chat) {
   // Optimistic update: renaming shouldn't feel like a network round-trip.
   chat.name = name;
   try {
-    await api.renameChat(chat.id, name);
+    await api.renameChat(chat.uid, name);
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e);
     await load();
@@ -60,9 +60,9 @@ async function confirmRename(chat: Chat) {
 
 async function onDelete(chat: Chat) {
   try {
-    await api.deleteChat(chat.id);
-    chats.value = chats.value.filter((c) => c.id !== chat.id);
-    if (chat.id === props.activeChatId) {
+    await api.deleteChat(chat.uid);
+    chats.value = chats.value.filter((c) => c.uid !== chat.uid);
+    if (chat.uid === props.activeChatId) {
       // The chat currently open in the main window was just deleted -
       // nothing sensible to show there anymore, so start a fresh one.
       emit("select", "");
@@ -111,11 +111,11 @@ const groups = computed(() => {
         <li class="chat-history__group-label">{{ group.label }}</li>
         <li
           v-for="chat in group.chats"
-          :key="chat.id"
+          :key="chat.uid"
           class="chat-history__item"
-          :class="{ 'chat-history__item--active': chat.id === activeChatId }"
+          :class="{ 'chat-history__item--active': chat.uid === activeChatId }"
         >
-          <form v-if="editingId === chat.id" class="chat-history__rename" @submit.prevent="confirmRename(chat)">
+          <form v-if="editingId === chat.uid" class="chat-history__rename" @submit.prevent="confirmRename(chat)">
             <input
               v-model="editingName"
               class="chat-history__rename-input"
@@ -128,7 +128,7 @@ const groups = computed(() => {
             v-else
             type="button"
             class="chat-history__open"
-            @click="emit('select', chat.id)"
+            @click="emit('select', chat.uid)"
           >
             <span class="chat-history__name">{{ chat.name }}</span>
             <span class="chat-history__date">{{ formatTime(chat.updatedAt) }}</span>
