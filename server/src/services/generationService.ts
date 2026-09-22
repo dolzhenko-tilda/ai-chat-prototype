@@ -8,6 +8,8 @@ import {
 } from "ai";
 import { model, tools, APPROVAL_GATED_TOOLS } from "./llm.js";
 import { MOCK_SOURCES } from "./mockSources.js";
+import { createMockStream } from "./mockGeneration.js";
+import { env } from "../env.js";
 import { messagesRepository } from "../repositories/messagesRepository.js";
 import { generationStateRepository } from "../repositories/generationStateRepository.js";
 import { partsToReplayChunks } from "../utils/replayChunks.js";
@@ -314,48 +316,72 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
 
   void (async () => {
     try {
-      const modelMessages = await convertToModelMessages(conversation, {
-        tools,
-      });
+      /**
+       * Мок-режим (`MOCK_RESPONSE`): фиксированный markdown вместо ответа
+       * модели. Стрим имеет ту же форму, что и настоящий, поэтому весь код
+       * ниже (запись чанков, data-custom-json, отмена, сохранение) общий —
+       * расходится только источник чанков и сборка итогового сообщения.
+       */
+      const mock = env.mockResponse
+        ? createMockStream({
+            assistantMessageId,
+            messageMetadata: {
+              chatUid,
+              status: "streaming",
+              createdAt: new Date(assistantCreatedAt).toISOString(),
+            },
+            abortSignal: abortController.signal,
+          })
+        : undefined;
 
-      const result = streamText({
-        model,
-        system: buildSystemPrompt(context),
-        messages: modelMessages,
-        tools,
-        toolApproval: buildToolApproval(requireApproval),
-        reasoning: toModelReasoningEffort(reasoningEffort),
-        stopWhen: stepCountIs(5),
-        abortSignal: abortController.signal,
-      });
+      let uiStream: AsyncIterable<AppUIMessageChunk>;
 
-      const uiStream = toUIMessageStream<typeof tools, AppUIMessage>({
-        stream: result.stream,
-        tools,
-        originalMessages: conversation,
-        generateMessageId: () => assistantMessageId,
-        // Attaches metadata to the very first (`start`) chunk so it's merged
-        // directly into that chunk (ai-sdk only emits a separate
-        // `message-metadata` chunk for non-start/finish parts) - the client
-        // therefore has `chatUid` available from the first chunk of the
-        // stream, before any text/tool parts arrive. `status: "streaming"`
-        // mirrors the placeholder row just persisted above.
-        messageMetadata: ({ part }) =>
-          part.type === "start"
-            ? { chatUid, status: "streaming", createdAt: new Date(assistantCreatedAt).toISOString() }
-            : undefined,
-        onError: (error) =>
-          error instanceof Error ? error.message : "An error occurred.",
-        onEnd: ({ responseMessage, outcome }) => {
-          finalMessage = responseMessage;
-          finalStatus =
-            outcome.status === "aborted"
-              ? "aborted"
-              : outcome.status === "failed"
-                ? "error"
-                : "complete";
-        },
-      });
+      if (mock) {
+        uiStream = mock.stream;
+      } else {
+        const modelMessages = await convertToModelMessages(conversation, {
+          tools,
+        });
+
+        const result = streamText({
+          model,
+          system: buildSystemPrompt(context),
+          messages: modelMessages,
+          tools,
+          toolApproval: buildToolApproval(requireApproval),
+          reasoning: toModelReasoningEffort(reasoningEffort),
+          stopWhen: stepCountIs(5),
+          abortSignal: abortController.signal,
+        });
+
+        uiStream = toUIMessageStream<typeof tools, AppUIMessage>({
+          stream: result.stream,
+          tools,
+          originalMessages: conversation,
+          generateMessageId: () => assistantMessageId,
+          // Attaches metadata to the very first (`start`) chunk so it's merged
+          // directly into that chunk (ai-sdk only emits a separate
+          // `message-metadata` chunk for non-start/finish parts) - the client
+          // therefore has `chatUid` available from the first chunk of the
+          // stream, before any text/tool parts arrive. `status: "streaming"`
+          // mirrors the placeholder row just persisted above.
+          messageMetadata: ({ part }) =>
+            part.type === "start"
+              ? { chatUid, status: "streaming", createdAt: new Date(assistantCreatedAt).toISOString() }
+              : undefined,
+          onError: (error) =>
+            error instanceof Error ? error.message : "An error occurred.",
+          onEnd: ({ responseMessage, outcome }) => {
+            finalMessage = responseMessage;
+            finalStatus =
+              outcome.status === "aborted"
+                ? "aborted"
+                : outcome.status === "failed"
+                  ? "error"
+                  : "complete";
+          },
+        });
+      }
 
       for await (const chunk of uiStream) {
         // A live client's `useChat` throws synchronously the moment it sees
@@ -418,6 +444,25 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
         gen.chunks.push(outgoingChunk);
         emitter.emit("chunk", outgoingChunk);
         generationStateRepository.appendChunk(chatUid, gen.chunks);
+      }
+
+      /**
+       * У мок-стрима нет `onEnd` от ai-sdk, поэтому итоговое сообщение
+       * собирается здесь вручную: текстовая часть с тем, что реально успело
+       * уйти в стрим (при отмене — обрезанный текст). `initialParts`
+       * сохраняются впереди, чтобы `/continue` не стирал из БД то, что
+       * записала предыдущая генерация этого же сообщения.
+       */
+      if (mock) {
+        finalMessage = {
+          id: assistantMessageId,
+          role: "assistant",
+          parts: [
+            ...initialParts,
+            { type: "text", text: mock.getEmittedText(), state: "done" },
+          ],
+        };
+        finalStatus = abortController.signal.aborted ? "aborted" : "complete";
       }
 
       // If the message was deleted while this generation was still running

@@ -72,7 +72,19 @@ LLM_MODEL_ID=qwen3:4b                     # id модели, которую от
 PORT=3001
 DB_PATH=./data/chat.sqlite
 CORS_ORIGIN=http://localhost:5173
+
+MOCK_RESPONSE=on                          # мок-ответ вместо запроса в LLM (см. ниже)
+MOCK_RESPONSE_PATH=./src/services/mockMarkdown.md   # какой файл стримить в мок-режиме
 ```
+
+> Мок-режим включён по умолчанию: на любое сообщение сервер стримит
+> фиксированный markdown из `server/src/services/mockMarkdown.md` — набор
+> примеров разметки для проверки рендерера на клиенте. Reasoning при этом не
+> эмитится, инструменты не вызываются. Чтобы вернуть обычную работу с
+> моделью, поставьте `MOCK_RESPONSE=off`. Файл подменяется переменной
+> `MOCK_RESPONSE_PATH` (путь считается от папки `server`): рядом лежит
+> `mockMarkdownDemo.md` — компактная демонстрация внешнего вида всех блоков
+> для дизайнера, без перебора альтернативных синтаксисов.
 
 `client/.env`:
 
