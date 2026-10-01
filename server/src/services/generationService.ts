@@ -5,6 +5,7 @@ import {
   streamText,
   stepCountIs,
   toUIMessageStream,
+  type ProviderMetadata,
 } from "ai";
 import { model, tools, APPROVAL_GATED_TOOLS } from "./llm.js";
 import { MOCK_SOURCES } from "./mockSources.js";
@@ -123,6 +124,17 @@ function buildSystemPrompt(context?: Context): string {
       ? ["", `The user is currently viewing this page: ${context.pageUrl}`]
       : []),
   ].join("\n");
+}
+
+/**
+ * Дописывает длительность шага в метаданные части или чанка, не трогая
+ * остальные поля - в том числе то, что положил туда сам провайдер.
+ */
+function withAppDuration(
+  metadata: ProviderMetadata | undefined,
+  durationMs: number,
+): ProviderMetadata {
+  return { ...metadata, app: { ...metadata?.app, durationMs } };
 }
 
 function persistAssistantMessage(
@@ -266,38 +278,50 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
     { type: "data-custom-json" }
   >[] = [];
 
-  /** Wall-clock start time (`Date.now()`) of each still-open reasoning part,
-   * keyed by its id - used to compute how long the model "thought" once its
-   * `reasoning-end` chunk arrives (neither OpenAI's nor Anthropic's API
-   * reports this, so it's measured here). */
-  const reasoningStartedAt = new Map<string, number>();
-  /** Computed reasoning durations (ms), keyed by reasoning part id, for
-   * parts that have already finished. Applied to the persisted parts in
-   * `finalizeParts` (see below) in addition to being attached live to the
-   * outgoing `reasoning-end` chunk. */
+  /**
+   * Сколько модель думала, ни OpenAI, ни Anthropic не отдают, поэтому время
+   * меряется здесь. Клиент сворачивает подряд идущие рассуждения и вызовы
+   * тулов в один блок «Думал N секунд» и складывает их длительности, так что
+   * каждому шагу достаётся время от конца предыдущего шага (или от начала
+   * генерации) до своего конца - вместе с паузой перед ним (ожидание первого
+   * токена, обработка результата тула моделью). Время, пока модель пишет
+   * текст, в размышления не входит: на `text-end` отметка просто сдвигается.
+   *
+   * Ожидание подтверждения тула пользователем отсекается само: на запросе
+   * подтверждения генерация заканчивается, а продолжение - это новая
+   * генерация со своей отметкой.
+   */
+  let lastStepEndedAt = assistantCreatedAt;
+
+  function takeStepDurationMs(): number {
+    const now = Date.now();
+    const durationMs = now - lastStepEndedAt;
+    lastStepEndedAt = now;
+    return durationMs;
+  }
+
+  /**
+   * Длительности шагов этой генерации: у рассуждения - по id части, у тула -
+   * отдельно генерация вызова и его выполнение, по `toolCallId`. Кладутся и в
+   * исходящие чанки, и в сохраняемые части (см. `finalizeParts`).
+   */
   const reasoningDurationsMs = new Map<string, number>();
+  const toolCallDurationsMs = new Map<string, number>();
+  const toolResultDurationsMs = new Map<string, number>();
 
   /** Appends `data-error`/`data-custom-json` parts (if any were seen), and
-   * reasoning durations, to whatever ai-sdk's own state builder produced.
+   * step durations, to whatever ai-sdk's own state builder produced.
    * Necessary because `data-error`/`data-custom-json` chunks are emitted
    * manually onto the raw stream (see the `for await` loop below) and never
    * passed through `toUIMessageStream`'s internal state builder, so they're
    * missing from `onEnd`'s `responseMessage.parts` - without this, they'd
    * be visible in the live stream but vanish once the message is persisted
-   * and reloaded from history. Reasoning durations have the same problem:
+   * and reloaded from history. Step durations have the same problem:
    * `onEnd` builds `responseMessage` from the original (unmodified)
-   * `result.stream` chunks, so the `providerMetadata.app.durationMs` we
-   * attach to the outgoing `reasoning-end` chunk below never reaches it. */
+   * `result.stream` chunks, so the `app.durationMs` we attach to the
+   * outgoing reasoning/tool chunks below never reaches it. */
   function finalizeParts(parts: AppUIMessage["parts"]): AppUIMessage["parts"] {
-    let result = parts.map((part) => {
-      if (part.type !== "reasoning" || !part.id) return part;
-      const durationMs = reasoningDurationsMs.get(part.id);
-      if (durationMs === undefined) return part;
-      return {
-        ...part,
-        providerMetadata: { ...part.providerMetadata, app: { durationMs } },
-      };
-    });
+    let result = parts.map(withStepDuration);
     for (const part of customJsonParts) {
       if (
         !result.some((p) => p.type === "data-custom-json" && p.id === part.id)
@@ -311,6 +335,36 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
         { type: "data-error", data: { message: lastErrorText } },
       ];
     }
+    return result;
+  }
+
+  function withStepDuration(part: AppUIMessage["parts"][number]): AppUIMessage["parts"][number] {
+    if (part.type === "reasoning") {
+      const durationMs = part.id ? reasoningDurationsMs.get(part.id) : undefined;
+      return durationMs === undefined
+        ? part
+        : { ...part, providerMetadata: withAppDuration(part.providerMetadata, durationMs) };
+    }
+
+    if (!("toolCallId" in part)) return part;
+
+    const callDurationMs = toolCallDurationsMs.get(part.toolCallId);
+    const resultDurationMs = toolResultDurationsMs.get(part.toolCallId);
+    let result = part;
+
+    if (callDurationMs !== undefined) {
+      result = { ...result, callProviderMetadata: withAppDuration(result.callProviderMetadata, callDurationMs) };
+    }
+    if (
+      resultDurationMs !== undefined &&
+      (result.state === "output-available" || result.state === "output-error")
+    ) {
+      result = {
+        ...result,
+        resultProviderMetadata: withAppDuration(result.resultProviderMetadata, resultDurationMs),
+      };
+    }
+
     return result;
   }
 
@@ -418,27 +472,41 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
           gen.chunks.push(customJsonChunk);
           emitter.emit("chunk", customJsonChunk);
         }
-        // Neither OpenAI's nor Anthropic's API reports how long the model
-        // spent "thinking", so it's measured here from the wall-clock gap
-        // between a reasoning part's `-start` and `-end` chunks, then
-        // attached as `providerMetadata.app.durationMs` - the ai-sdk's
-        // official passthrough extension point for both reasoning parts and
-        // reasoning-* chunks (see `ReasoningPart.vue` on the client, which
-        // reads it back out to render "Thought for Xs"/"Xm Ys").
+        // Длительность шага (см. `lastStepEndedAt`) уходит клиенту в
+        // `providerMetadata.app.durationMs` чанка - штатное место ai-sdk для
+        // своих полей. Из `reasoning-end` она попадает в `providerMetadata`
+        // рассуждения, из `tool-input-available` - в `callProviderMetadata`
+        // тула, из `tool-output-*` и `tool-input-error` - в его
+        // `resultProviderMetadata`.
         let outgoingChunk = chunk;
-        if (chunk.type === "reasoning-start") {
-          reasoningStartedAt.set(chunk.id, Date.now());
-        } else if (chunk.type === "reasoning-end") {
-          const startedAt = reasoningStartedAt.get(chunk.id);
-          if (startedAt !== undefined) {
-            reasoningStartedAt.delete(chunk.id);
-            const durationMs = Date.now() - startedAt;
+        switch (chunk.type) {
+          case "reasoning-end": {
+            const durationMs = takeStepDurationMs();
             reasoningDurationsMs.set(chunk.id, durationMs);
-            outgoingChunk = {
-              ...chunk,
-              providerMetadata: { ...chunk.providerMetadata, app: { durationMs } },
-            };
+            outgoingChunk = { ...chunk, providerMetadata: withAppDuration(chunk.providerMetadata, durationMs) };
+            break;
           }
+          case "tool-input-available": {
+            const durationMs = takeStepDurationMs();
+            toolCallDurationsMs.set(chunk.toolCallId, durationMs);
+            outgoingChunk = { ...chunk, providerMetadata: withAppDuration(chunk.providerMetadata, durationMs) };
+            break;
+          }
+          case "tool-input-error":
+          case "tool-output-available":
+          case "tool-output-error": {
+            // Промежуточные результаты тула приходят несколькими чанками, и
+            // каждый следующий заменяет метаданные части целиком, поэтому
+            // в чанк кладётся накопленное время.
+            const durationMs =
+              (toolResultDurationsMs.get(chunk.toolCallId) ?? 0) + takeStepDurationMs();
+            toolResultDurationsMs.set(chunk.toolCallId, durationMs);
+            outgoingChunk = { ...chunk, providerMetadata: withAppDuration(chunk.providerMetadata, durationMs) };
+            break;
+          }
+          case "text-end":
+            lastStepEndedAt = Date.now();
+            break;
         }
 
         gen.chunks.push(outgoingChunk);
