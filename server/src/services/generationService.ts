@@ -368,6 +368,22 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
     return result;
   }
 
+  /**
+   * Чанк со сменой статуса сообщения - уходит перед `error` и `abort`, чтобы
+   * клиент узнал итоговый статус ещё до того, как стрим оборвётся. Тип чанка
+   * требует метаданные целиком, поэтому `chatUid` и `createdAt` повторяются.
+   */
+  function createStatusChunk(status: MessageStatus): AppUIMessageChunk {
+    return {
+      type: "message-metadata",
+      messageMetadata: {
+        chatUid,
+        status,
+        createdAt: new Date(assistantCreatedAt).toISOString(),
+      },
+    };
+  }
+
   void (async () => {
     try {
       /**
@@ -446,13 +462,20 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
         // the message before the stream aborts.
         if (chunk.type === "error") {
           lastErrorText = chunk.errorText;
+          const statusChunk = createStatusChunk("error");
           const dataErrorChunk: AppUIMessageChunk = {
             type: "data-error",
             id: randomUUID(),
             data: { message: chunk.errorText },
           };
-          gen.chunks.push(dataErrorChunk);
+          gen.chunks.push(statusChunk, dataErrorChunk);
+          emitter.emit("chunk", statusChunk);
           emitter.emit("chunk", dataErrorChunk);
+        }
+        if (chunk.type === "abort") {
+          const statusChunk = createStatusChunk("aborted");
+          gen.chunks.push(statusChunk);
+          emitter.emit("chunk", statusChunk);
         }
         if (chunk.type === "finish-step") {
           const customJsonId = randomUUID();
@@ -547,6 +570,7 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
       console.error(`[generation:${chatUid}] failed`, error);
       const message = error instanceof Error ? error.message : String(error);
       lastErrorText = message;
+      const statusChunk = createStatusChunk("error");
       const dataErrorChunk: AppUIMessageChunk = {
         type: "data-error",
         id: randomUUID(),
@@ -556,8 +580,9 @@ export function runGeneration(options: RunGenerationOptions): ActiveGeneration {
         type: "error",
         errorText: message,
       };
-      gen.chunks.push(dataErrorChunk, errorChunk);
+      gen.chunks.push(statusChunk, dataErrorChunk, errorChunk);
       generationStateRepository.appendChunk(chatUid, gen.chunks);
+      emitter.emit("chunk", statusChunk);
       emitter.emit("chunk", dataErrorChunk);
       emitter.emit("chunk", errorChunk);
       if (!gen.discarded) {
