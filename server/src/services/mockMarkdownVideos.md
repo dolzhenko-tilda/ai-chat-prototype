@@ -106,6 +106,18 @@ Yappy и Rutube Sport не встраиваются — карточка, по �
 
 [Video](https://kinescope.io/embed/2czhhhBNp1bu3gQZEkEbFq "video:Kinescope, ссылка на плеер")
 
+HLS-манифест — плеер того же видео.
+
+[Video](https://kinescope.io/2czhhhBNp1bu3gQZEkEbFq/master.m3u8 "video:Kinescope, HLS-манифест")
+
+Путь, устроенный не как ссылка на видео, — карточка, по клику новая вкладка.
+
+[Video](https://kinescope.io/ru/embed/2czhhhBNp1bu3gQZEkEbFq "video:Kinescope, лишний сегмент пути")
+
+Страница сайта неотличима от видео: формат ID не документирован, поэтому получается плеер с ошибкой Kinescope.
+
+[Video](https://kinescope.io/ru "video:Kinescope, страница сайта")
+
 Плейлист не встраивается — карточка с обложкой первого видео, по клику новая вкладка.
 
 [Video](https://kinescope.io/pl/e5Crz7gCEJ6K1Jf8asgHQL "video:Kinescope, плейлист")
@@ -129,6 +141,20 @@ Yappy и Rutube Sport не встраиваются — карточка, по �
 Файл с CDN Boomstream играет в плеере браузера.
 
 [Video](https://cdn-g.boomstream.com/balancer/l7A8U8H6-7dR8wQoH.mp4 "video:Boomstream, mp4-файл")
+
+## Видеохостинг Тильды
+
+Страница видео на vd.tilda.cc — по клику плеер запускается сам, со звуком. Названия у хостинга нет, обложки сервис пока не находит — остаётся его заглушка.
+
+[Video](https://vd.tilda.cc/videos/140898_IxSeJ0QcXn3MBm8W "video:Тильда, vd.tilda.cc")
+
+Ссылка по http с параметром — плеер по https, параметр отбрасывается.
+
+[Video](http://vd.tilda.cc/videos/140898_IxSeJ0QcXn3MBm8W?t=10 "video:Тильда, по http с параметром")
+
+Идентификатор не в формате `<число>_<токен>` — карточка, по клику новая вкладка.
+
+[Video](https://vd.tilda.cc/videos/abc "video:Тильда, мусорный id")
 
 ## Видеофайлы
 
@@ -184,9 +210,13 @@ Yappy и Rutube Sport не встраиваются — карточка, по �
 
 [Video](http://vimeo.com/11961930 "video:Vimeo по http")
 
-Относительная ссылка — карточка с заглушкой обложки, по клику путь открывается в новой вкладке на домене страницы.
+Относительная ссылка — обычная ссылка, по клику путь открывается в новой вкладке на домене страницы.
 
-[Video](/video/zero-block.mp4 "video:Относительная ссылка")
+[Урок по Zero Block](/video/zero-block.mp4 "video:Относительная ссылка")
+
+Опасная ссылка — санитайзер вырезает адрес, остаётся обычная ссылка, которая никуда не ведёт.
+
+[Video](javascript:alert(1) "video:Опасная ссылка")
 
 ## Крайние случаи разметки
 
